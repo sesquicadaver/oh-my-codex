@@ -30,3 +30,4 @@ mailbox.json
 readiness.json
 replay.json
 snapshot.json
+package-lock.json
