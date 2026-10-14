@@ -14,7 +14,7 @@
 
 Couche d'orchestration multi-agents pour [OpenAI Codex CLI](https://github.com/openai/codex).
 
-## Nouveautés de la v0.9.0 — Spark Initiative
+## Notes de version historiques de la v0.9.0 — Spark Initiative
 
 Spark Initiative est la version qui renforce la voie native d’exploration et d’inspection dans OMX.
 
@@ -32,7 +32,7 @@ Dans Codex :
 ```text
 $deep-interview "clarify the auth change"
 $ralplan "approve the auth plan and review tradeoffs"
-$ralph "carry the approved plan to completion"
+$ultragoal "carry the approved plan to completion"
 $team 3:executor "execute the approved plan in parallel"
 ```
 
@@ -48,7 +48,7 @@ omx team shutdown <team-name>
 
 1. `$deep-interview` — quand le périmètre ou les limites restent flous.
 2. `$ralplan` — pour transformer ce périmètre clarifié en plan validé d’architecture et d’implémentation.
-3. `$team` ou `$ralph` — utilisez `$team` pour une exécution parallèle coordonnée, ou `$ralph` pour une boucle persistante de finalisation/vérification avec un seul responsable.
+3. `$team` ou `$ultragoal` — utilisez `$team` pour une exécution parallèle coordonnée, ou `$ultragoal` pour suivre durablement les objectifs jusqu’à l’achèvement.
 
 ## Modèle de base
 
@@ -124,10 +124,10 @@ Lorsque défini, les valeurs `workingDirectory` en dehors de ces racines sont re
 Par défaut, OMX injecte :
 
 ```text
--c model_instructions_file="<cwd>/AGENTS.md"
+-c model_instructions_file="<cwd>/.omx/state/sessions/<session-id>/AGENTS.md"
 ```
 
-Cela fusionne le `AGENTS.md` de `CODEX_HOME` avec le `AGENTS.md` du projet (s'il existe), puis ajoute l'overlay d'exécution.
+Ce fichier généré ne contient que l'overlay d'exécution OMX (`<!-- OMX:RUNTIME:START -->` à `<!-- OMX:RUNTIME:END -->`). Les instructions durables de `CODEX_HOME/AGENTS.md` et des `AGENTS.md` de projet n'y sont pas copiées : Codex les charge une seule fois via sa découverte native AGENTS. Les workers Team composent toujours leurs propres instructions.
 Cela étend le comportement de Codex, mais ne remplace/contourne pas les politiques système de base de Codex.
 
 Contrôles :
@@ -192,8 +192,8 @@ Notes :
   - `notify = ["node", "..."]`
   - `model_reasoning_effort = "medium"`
   - `developer_instructions = "..."`
-  - `[features] multi_agent = true, child_agents_md = true`
-  - Entrées de serveurs MCP (`omx_state`, `omx_memory`, `omx_code_intel`, `omx_trace`, `omx_wiki`)
+  - `[features] multi_agent = true` (quand présent)
+  - Entrées de serveurs MCP (`omx_state`, `omx_memory`, `omx_code_intel`, `omx_trace`, `omx_wiki` (serveur wiki du dépôt), `omx_hermes` (pont borné d’état et de coordination des sessions))
   - `[tui] status_line`
 - `AGENTS.md` spécifique au scope
 - Répertoires d'exécution `.omx/` et configuration HUD
@@ -205,7 +205,7 @@ Notes :
 
 Exemples :
 - Agents : `architect`, `planner`, `executor`, `debugger`, `verifier`, `security-reviewer`
-- Skills : `autopilot`, `plan`, `team`, `ralph`, `ultrawork`, `cancel`
+- Skills : `autopilot`, `plan`, `team`, `ultragoal`, `cancel`
 
 ## Structure du projet
 
@@ -257,6 +257,26 @@ npm test
 ## Remerciements
 
 Inspiré par [oh-my-claudecode](https://github.com/Yeachan-Heo/oh-my-claudecode), adapté pour Codex CLI.
+
+## Langues
+
+- [English](../../README.md)
+- [한국어](./README.ko.md)
+- [日本語](./README.ja.md)
+- [简体中文](./README.zh.md)
+- [繁體中文](./README.zh-TW.md)
+- [Tiếng Việt](./README.vi.md)
+- [Español](./README.es.md)
+- [Português](./README.pt.md)
+- [Русский](./README.ru.md)
+- [Türkçe](./README.tr.md)
+- [Deutsch](./README.de.md)
+- [Français](./README.fr.md)
+- [Italiano](./README.it.md)
+- [Ελληνικά](./README.el.md)
+- [Polski](./README.pl.md)
+- [Українська](./README.uk.md)
+- [Bahasa Indonesia](./README.id.md)
 
 ## Licence
 

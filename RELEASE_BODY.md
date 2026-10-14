@@ -1,25 +1,34 @@
-# oh-my-codex 0.20.5
+# oh-my-codex 0.21.11
 
-`0.20.5` is a patch release for the exact range `v0.20.4..13c08f84cb6c27750b8f5c4a4d5105faad074196` (68 commits, 35 merged PRs). It contains no intentional breaking CLI or package-layout changes.
+`0.21.11` is a patch release for the frozen range `v0.21.10..7e0b5f2330b9d85c5fdb9709ec0104e099836f4c` (3 commits, 2 files, +68/−5): native agent TOMLs no longer retain stale inherited model providers.
 
 ## Highlights
 
-- **Darwin detached return-to-shell and finalization** — detached launches now bind readiness and metadata to the live pane, retain exact HUD/leader authority through teardown, release attach only after finalization, and exercise the return-to-shell path on macOS (#3472).
-- **Session and hook authority** — exact indeterminate bindings are finalized with synchronous directory-capability revalidation; trusted lock inspection is available for diagnostics; identity-indeterminate Stop handling is silent; authorization failures are no longer reinjected (#3416, #3421, #3471, #3472).
-- **Ralplan diagnostics and lifecycle** — preflight remains state-preserving, reports structured detected-version diagnostics, clears stale owner-scoped state, permits typed consensus delegation, and recognizes Codex 0.148 alpha versions (#3450, #3455, #3456, #3473).
-- **Windows and setup durability** — directory `fsync` `EPERM`, hook mode synthesis, and mode read-back are tolerated on Windows; launch repair preserves user notify/reasoning settings and project scope (#3448, #3449, #3467, #3468).
-- **Team/tmux boundaries** — foreign pane topology is explained rather than claimed, and source-authority separator argv boundaries are preserved (#3434, #3460).
-- **Plugin/runtime and packed-install fixes** — packed runtime provisioning and cwd checks are deterministic, ambient session state is scrubbed, detached OMX state is bound to launch context, and Doctor validates native process-identity readiness (#3395, #3436, #3454, #3461, #3470).
-- **Dependencies** — `windows-sys` 0.59→0.61.2, `tar-stream` 2.2.0→3.2.0, `@types/tar-stream` 2.2.3→3.1.4, `@biomejs/biome` 2.5.4→2.5.6, and `@types/node` 26.1.1→26.1.2 (#3429–#3432).
+- **Fresh provider inheritance (#3781, fixes #3779):** native agent TOMLs omit `model_provider` when it only mirrors the root `config.toml` default, so changing the provider no longer leaves stale agent configuration or requires `omx setup --force`. Explicit per-agent model overrides remain supported.
 
-> **Current status / supersession (ADR 3212):** Local leader attestation and adapted role intent do not authorize. Typed routing and tracker evidence are lifecycle or diagnostic evidence only. When `role_routing_unavailable` applies to an adapted Ralplan authority attempt, installed role-intent and preflight fail closed with `unsupported_documented_leader_proof`. Ralplan consensus remains unavailable with `documented_host_consensus_receipt_unavailable` because no official host receipt verifier exists; native Architect/Critic evidence alone cannot release the transition.
+## Fixes and compatibility
 
-## Compatibility
+- Avoid baking inherited root `model_provider` values into native agent TOMLs; preserve explicit per-agent overrides (#3781, fixes #3779).
+- Patch release with no intentional breaking CLI or package-layout changes.
 
-Patch release with no intentional breaking contract. Publication, tag, GitHub Release, and npm availability remain pending the owner-authorized promotion lane.
+## Validation evidence
+
+Frozen candidate green on dev CI; local build, typecheck, and relevant tests recorded.
+
+Full readiness evidence: `docs/qa/release-readiness-0.21.11.md`.
+
+## Merged PR inventory
+
+| PR | Author | Title |
+|---|---|---|
+| [#3781](https://github.com/Yeachan-Heo/oh-my-codex/pull/3781) | @Yeachan-Heo | fix: do not bake model_provider into agent TOMLs for default inheritance (fixes #3779) |
 
 ## Contributors
 
-Thanks to Bellman (@Yeachan-Heo) for the majority of commits in this range, with an additional contribution from @ev78394, plus @app/dependabot for dependency updates.
+Thanks to [@Yeachan-Heo](https://github.com/Yeachan-Heo) and [@gaebal-gajae](https://github.com/gaebal-gajae) (co-author).
 
-**Full Changelog**: [`v0.20.4...v0.20.5`](https://github.com/Yeachan-Heo/oh-my-codex/compare/v0.20.4...v0.20.5)
+## Inventory
+
+The reproducible range is recorded in `artifacts/release-0.21.11/inventory.md`.
+
+**Full Changelog**: [`v0.21.10...v0.21.11`](https://github.com/Yeachan-Heo/oh-my-codex/compare/v0.21.10...v0.21.11)

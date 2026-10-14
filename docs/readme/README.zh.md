@@ -9,13 +9,13 @@
 [![npm version](https://img.shields.io/npm/v/oh-my-codex)](https://www.npmjs.com/package/oh-my-codex)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
-[![Discord](https://img.shields.io/discord/1452487457085063218?color=5865F2&logo=discord&logoColor=white&label=Discord)](https://discord.gg/jq6jnSGABY)
+[![Discord](https://img.shields.io/discord/1452487457085063218?color=5865F2&logo=discord&logoColor=white&label=Discord)](https://discord.gg/wSyUQYfhAw)
 
 > **[Website](https://yeachan-heo.github.io/oh-my-codex-website/)** | **[Documentation](https://yeachan-heo.github.io/oh-my-codex-website/docs.html)** | **[CLI Reference](https://yeachan-heo.github.io/oh-my-codex-website/docs.html#cli-reference)** | **[Workflows](https://yeachan-heo.github.io/oh-my-codex-website/docs.html#workflows)** | **[OpenClaw 集成指南](../openclaw-integration.zh.md)** | **[GitHub](https://github.com/Yeachan-Heo/oh-my-codex)** | **[npm](https://www.npmjs.com/package/oh-my-codex)**
 
 [OpenAI Codex CLI](https://github.com/openai/codex) 的多智能体编排层。
 
-## v0.9.0 新特性 — Spark Initiative
+## v0.9.0 历史发布说明 — Spark Initiative
 
 Spark Initiative 是一次强化 OMX 原生探索与检查路径的版本发布。
 
@@ -33,7 +33,7 @@ Spark Initiative 是一次强化 OMX 原生探索与检查路径的版本发布�
 ```text
 $deep-interview "clarify the auth change"
 $ralplan "approve the auth plan and review tradeoffs"
-$ralph "carry the approved plan to completion"
+$ultragoal "carry the approved plan to completion"
 $team 3:executor "execute the approved plan in parallel"
 ```
 
@@ -49,7 +49,7 @@ omx team shutdown <team-name>
 
 1. `$deep-interview` — 当范围或边界还不清楚时，先用它澄清需求。
 2. `$ralplan` — 把澄清后的范围整理成可批准的架构与实施计划。
-3. `$team` 或 `$ralph` — 需要协调并行执行时用 `$team`，需要单一负责人持续推进到完成并验证时用 `$ralph`。
+3. `$team` 或 `$ultragoal` — 需要协调并行执行时用 `$team`，需要持久记录目标并推进到完成时用 `$ultragoal`。
 
 ## 核心模型
 
@@ -125,10 +125,10 @@ export OMX_MCP_WORKDIR_ROOTS="/path/to/project:/path/to/another-root"
 默认情况下，OMX 注入：
 
 ```text
--c model_instructions_file="<cwd>/AGENTS.md"
+-c model_instructions_file="<cwd>/.omx/state/sessions/<session-id>/AGENTS.md"
 ```
 
-这会将 `CODEX_HOME` 中的 `AGENTS.md` 与项目 `AGENTS.md`（如果存在）合并，然后再附加运行时 overlay。
+这个生成的文件只包含 OMX 运行时 overlay（`<!-- OMX:RUNTIME:START -->` 到 `<!-- OMX:RUNTIME:END -->`）。`CODEX_HOME/AGENTS.md` 和项目 `AGENTS.md` 不会被复制进去，Codex 通过原生 AGENTS 发现机制只加载一次。Team worker 仍自行组合其 worker 指示。
 扩展 Codex 行为，但不会替换/绕过 Codex 核心系统策略。
 
 控制：
@@ -193,8 +193,8 @@ OMX_TEAM_AUTO_INTERRUPT_RETRY=0  # 可选：禁用自适应 queue->resend 回退
   - `notify = ["node", "..."]`
   - `model_reasoning_effort = "medium"`
   - `developer_instructions = "..."`
-  - `[features] multi_agent = true, child_agents_md = true`
-  - MCP 服务器条目（`omx_state`、`omx_memory`、`omx_code_intel`、`omx_trace`）
+  - `[features] multi_agent = true` (存在时)
+  - MCP 服务器条目（`omx_state`、`omx_memory`、`omx_code_intel`、`omx_trace`、`omx_wiki`（仓库 Wiki 服务器）、`omx_hermes`（有界的会话状态/协调桥接））
   - `[tui] status_line`
 - 作用域专属 `AGENTS.md`
 - `.omx/` 运行时目录和 HUD 配置
@@ -206,7 +206,7 @@ OMX_TEAM_AUTO_INTERRUPT_RETRY=0  # 可选：禁用自适应 queue->resend 回退
 
 示例：
 - 代理：`architect`、`planner`、`executor`、`debugger`、`verifier`、`security-reviewer`
-- 技能：`deep-interview`、`ralplan`、`team`、`ralph`、`plan`、`cancel`
+- 技能：`deep-interview`、`ralplan`、`team`、`ultragoal`、`plan`、`cancel`
 
 ## 项目结构
 
@@ -258,6 +258,26 @@ npm test
 ## 致谢
 
 受 [oh-my-claudecode](https://github.com/Yeachan-Heo/oh-my-claudecode) 启发，为 Codex CLI 适配。
+
+## 语言
+
+- [English](../../README.md)
+- [한국어](./README.ko.md)
+- [日本語](./README.ja.md)
+- [简体中文](./README.zh.md)
+- [繁體中文](./README.zh-TW.md)
+- [Tiếng Việt](./README.vi.md)
+- [Español](./README.es.md)
+- [Português](./README.pt.md)
+- [Русский](./README.ru.md)
+- [Türkçe](./README.tr.md)
+- [Deutsch](./README.de.md)
+- [Français](./README.fr.md)
+- [Italiano](./README.it.md)
+- [Ελληνικά](./README.el.md)
+- [Polski](./README.pl.md)
+- [Українська](./README.uk.md)
+- [Bahasa Indonesia](./README.id.md)
 
 ## 许可证
 

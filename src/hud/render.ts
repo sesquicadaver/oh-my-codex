@@ -4,7 +4,7 @@
  * Renders HudRenderContext into formatted ANSI strings.
  */
 
-import type { HudRenderContext, HudPreset } from './types.js';
+import type { HudRenderContext, HudPreset, TeamWorkerForHud } from './types.js';
 import { green, yellow, cyan, dim, bold, magenta, getRalphColor, isColorEnabled, RESET } from './colors.js';
 import { HUD_TMUX_HEIGHT_LINES, HUD_TMUX_MAX_HEIGHT_LINES, HUD_TMUX_ULTRAGOAL_HEIGHT_LINES } from './constants.js';
 
@@ -54,6 +54,22 @@ function renderGitBranch(ctx: HudRenderContext): string | null {
   const gitBranch = sanitizeDynamicText(ctx.gitBranch);
   if (!gitBranch) return null;
   return cyan(gitBranch);
+}
+
+const GUARDEX_SPINNER_FRAMES = ['◐', '◓', '◑', '◒'] as const;
+const GUARDEX_SPINNER_FRAME_MS = 400;
+
+function renderGuardexFinish(ctx: HudRenderContext): string | null {
+  if (!ctx.guardexFinish?.active) return null;
+  const { index, total, state } = ctx.guardexFinish;
+  if (!Number.isSafeInteger(index) || !Number.isSafeInteger(total) || index <= 0 || total <= 0 || index > total) return null;
+  const stage = sanitizeDynamicText(ctx.guardexFinish.stage).slice(0, 40);
+  if (!stage) return null;
+  const animates = state === 'running' && (stage === 'review' || stage === 'autofix');
+  const frame = animates
+    ? ` ${GUARDEX_SPINNER_FRAMES[Math.floor(Date.now() / GUARDEX_SPINNER_FRAME_MS) % GUARDEX_SPINNER_FRAMES.length]}`
+    : '';
+  return yellow(`gx:${index}/${total} ${stage}${frame}`);
 }
 
 function renderRalph(ctx: HudRenderContext): string | null {
@@ -157,11 +173,11 @@ function renderUltraqa(ctx: HudRenderContext): string | null {
 }
 
 function formatTeamSummary(ctx: HudRenderContext): string | null {
-  if (!ctx.team) return null;
+  if (!ctx.team?.active) return null;
   const count = ctx.team.agent_count;
-  const name = ctx.team.team_name ? sanitizeDynamicText(ctx.team.team_name) : '';
-  if (count !== undefined && count > 0) {
-    return `team:${count} workers`;
+  const name = ctx.team.team_name ? sanitizeDynamicText(ctx.team.team_name).trim() : '';
+  if (count !== undefined && Number.isSafeInteger(count) && count > 0) {
+    return name ? `team:${name} (${count} workers)` : `team:${count} workers`;
   }
   if (name) {
     return `team:${name}`;
@@ -184,14 +200,68 @@ function truncateDynamicText(value: string, maxLength: number): string {
   return normalizeTrailingEllipsis(`${value.slice(0, maxLength - 1).trimEnd()}…`);
 }
 
-export function getHudRenderMaxLines(ctx: Pick<HudRenderContext, 'ultragoal'>): number {
-  return ctx.ultragoal?.active ? HUD_TMUX_ULTRAGOAL_HEIGHT_LINES : HUD_TMUX_HEIGHT_LINES;
+export function getHudRenderMaxLines(ctx: Pick<HudRenderContext, 'ultragoal' | 'team'>): number {
+  const summaryLines = ctx.ultragoal?.active ? HUD_TMUX_ULTRAGOAL_HEIGHT_LINES : HUD_TMUX_HEIGHT_LINES;
+  return summaryLines + (ctx.team?.active ? ctx.team.workers?.length ?? 0 : 0);
 }
 
-function clampHudMaxLines(ctx: Pick<HudRenderContext, 'ultragoal'>, maxLines: number | undefined): number {
+function clampHudMaxLines(ctx: HudRenderContext, maxLines: number | undefined): number {
   const adaptiveMaxLines = getHudRenderMaxLines(ctx);
   if (!Number.isFinite(maxLines ?? Number.NaN) || (maxLines ?? 0) <= 0) return adaptiveMaxLines;
   return Math.min(Math.floor(maxLines ?? adaptiveMaxLines), adaptiveMaxLines);
+}
+
+function renderTeamWorkers(workers: TeamWorkerForHud[], maxWidth: number): string[] {
+  const cells = workers.map(worker => {
+    let updated = '';
+    if (worker.updatedAt && Number.isFinite(Date.parse(worker.updatedAt))) {
+      const seconds = Math.max(0, Math.floor((Date.now() - Date.parse(worker.updatedAt)) / 1000));
+      updated = `updated:${seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m`} ago`;
+    }
+    return [
+      sanitizeDynamicText(worker.name), worker.state,
+      worker.taskId ? `task:${sanitizeDynamicText(worker.taskId)}` : '',
+      worker.role ? sanitizeDynamicText(worker.role) : '',
+      worker.paneId ? `pane:${sanitizeDynamicText(worker.paneId)}` : '',
+      updated,
+    ];
+  });
+  const columns = [0, 1, 2, 3, 4, 5].filter(column => column < 2 || cells.some(row => row[column]));
+  const widths = columns.map(column => Math.max(...cells.map(row => visibleLength(row[column] || '-'))));
+  let separator = SEP;
+  const rowWidth = () => widths.reduce((sum, width) => sum + width, 1) + Math.max(0, columns.length - 2) * visibleLength(separator);
+  // Remove optional columns as a unit so the remaining roster stays aligned.
+  while (rowWidth() > maxWidth && (columns.at(-1) ?? 0) >= 3) {
+    columns.pop();
+    widths.pop();
+  }
+  if (rowWidth() > maxWidth) {
+    const hasTask = columns[2] === 2;
+    let nameBudget = maxWidth - widths[1] - 1 - (hasTask ? widths[2] + 3 : 0);
+    if (nameBudget < 3) {
+      separator = ' ';
+      if (hasTask) {
+        for (const row of cells) row[2] = row[2].replace(/^task:/, '#');
+        widths[2] = Math.max(...cells.map(row => visibleLength(row[2] || '-')));
+      }
+      nameBudget = maxWidth - widths[1] - 1 - (hasTask ? widths[2] + 1 : 0);
+    }
+    widths[0] = Math.min(widths[0], Math.max(1, nameBudget));
+    if (hasTask) widths[2] = Math.min(widths[2], Math.max(1, maxWidth - widths[0] - widths[1] - 1 - visibleLength(separator)));
+  }
+  return cells.map((row, index) => {
+    const padded = columns.map((column, position) => {
+      let value = row[column] || '-';
+      if (column === 0 && visibleLength(value) > widths[position]) value = value.replace(/^worker-(\d+)$/, 'w$1');
+      value = ellipsizeSegment(value, widths[position]);
+      return position === columns.length - 1 ? value : value + ' '.repeat(widths[position] - visibleLength(value));
+    });
+    const label = `${padded[0]} ${padded[1]}`;
+    const state = workers[index].state;
+    const status = state === 'working' || state === 'done' ? green(label)
+      : state === 'blocked' || state === 'failed' ? yellow(label) : dim(label);
+    return [status, ...padded.slice(2).map((value, position) => columns[position + 2] === 5 ? dim(value) : value)].join(separator);
+  });
 }
 
 function renderUltragoal(ctx: HudRenderContext): string | null {
@@ -299,6 +369,7 @@ type ElementRenderer = (ctx: HudRenderContext) => string | null;
 
 const MINIMAL_ELEMENTS: ElementRenderer[] = [
   renderGitBranch,
+  renderGuardexFinish,
   renderRalph,
   renderUltrawork,
   renderRalplan,
@@ -313,6 +384,7 @@ const MINIMAL_ELEMENTS: ElementRenderer[] = [
 
 const FOCUSED_ELEMENTS: ElementRenderer[] = [
   renderGitBranch,
+  renderGuardexFinish,
   renderRalph,
   renderUltrawork,
   renderAutopilot,
@@ -332,6 +404,7 @@ const FOCUSED_ELEMENTS: ElementRenderer[] = [
 
 const FULL_ELEMENTS: ElementRenderer[] = [
   renderGitBranch,
+  renderGuardexFinish,
   renderRalph,
   renderUltrawork,
   renderAutopilot,
@@ -483,7 +556,11 @@ export function renderHud(
   options: RenderHudOptions = {},
 ): string {
   const elements = getElements(preset);
-  const parts = elements
+  // Keep team identity (including combined Ultragoal summaries) ahead of other modes.
+  const orderedElements = ctx.team?.active
+    ? [renderExecutionSummary, ...elements.filter(fn => fn !== renderExecutionSummary)]
+    : elements;
+  const parts = orderedElements
     .map(fn => fn(ctx))
     .filter((s): s is string => s !== null);
 
@@ -498,7 +575,19 @@ export function renderHud(
     return wrapHudParts(label, [dim('No active modes.')], renderOptions);
   }
 
-  return wrapHudParts(label, parts, renderOptions);
+  const workers = ctx.team?.active ? ctx.team.workers ?? [] : [];
+  if (workers.length === 0) return wrapHudParts(label, parts, renderOptions);
+  const headerBudget = Math.max(1, renderOptions.maxLines - workers.length);
+  const header = wrapHudParts(label, parts, { ...renderOptions, maxLines: headerBudget });
+  const availableRows = renderOptions.maxLines - countRenderedHudLines(header);
+  const overflow = workers.length > availableRows;
+  const visibleWorkers = workers.slice(0, Math.max(0, availableRows - (overflow ? 1 : 0)));
+  const width = Number.isFinite(options.maxWidth) && (options.maxWidth ?? 0) > 0
+    ? Math.max(12, Math.floor(options.maxWidth ?? 0)) : Infinity;
+  const rows = renderTeamWorkers(workers, width).slice(0, visibleWorkers.length);
+  if (overflow && availableRows > 0) rows.push(dim(`+${workers.length - visibleWorkers.length} workers`));
+  // Keep identity, status, and task ahead of optional metadata on narrow panes.
+  return [header, ...rows.map(row => visibleLength(row) > width ? `${sliceAnsiVisible(row, 0, width - 1)}…` : row)].join('\n');
 }
 
 export function countRenderedHudLines(text: string): number {

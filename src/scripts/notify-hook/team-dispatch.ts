@@ -954,6 +954,7 @@ async function injectDispatchRequest(request, config, cwd, stateDir) {
     expectedHudPaneId: dispatchTarget.expectedHudPaneId,
     prompt: request.trigger_message,
     submitKeyPresses,
+    submitKey: 'Enter',
     typePrompt: shouldTypePrompt,
     queueFirstSubmit: leaderTargeted,
   });
@@ -973,7 +974,7 @@ async function injectDispatchRequest(request, config, cwd, stateDir) {
 
   // Post-injection verification: confirm the trigger text was consumed.
   // Fixes #391: without this, dispatch marks 'notified' even when the worker
-  // pane is sitting on an unsent draft (C-m was not effectively applied).
+  // pane is sitting on an unsent draft (Enter was not effectively applied).
   const verifyNarrowArgv = buildJoinedCapturePaneArgv(resolution.paneTarget, 8);
   const verifyWideArgv = buildJoinedCapturePaneArgv(resolution.paneTarget);
   for (let round = 0; round < INJECT_VERIFY_ROUNDS; round++) {
@@ -990,7 +991,7 @@ async function injectDispatchRequest(request, config, cwd, stateDir) {
       // full-scrollback false positives.
       narrowCap = await runProcess('tmux', verifyNarrowArgv, 2000);
     } catch {
-      // Capture failed; fall through to retry C-m.
+      // Capture failed; fall through to retry Enter.
     }
     if (narrowCap) {
       const wideProof = await verifyExplicitPane();
@@ -1000,7 +1001,7 @@ async function injectDispatchRequest(request, config, cwd, stateDir) {
         const triggerInNarrow = capturedPaneContainsTrigger(narrowCap.stdout, request.trigger_message);
         const triggerNearTail = capturedPaneContainsTriggerNearTail(wideCap.stdout, request.trigger_message);
         if (triggerInNarrow || triggerNearTail) {
-          // Draft is still visible, so C-m has not actually submitted it yet.
+          // Draft is still visible, so Enter has not actually submitted it yet.
           // Do not let transient spinner/active-task text mask an unsent draft.
           const retrySend = await sendPaneInput({
             paneTarget: resolution.paneTarget,
@@ -1010,6 +1011,7 @@ async function injectDispatchRequest(request, config, cwd, stateDir) {
             expectedHudPaneId: dispatchTarget.expectedHudPaneId,
             prompt: request.trigger_message,
             submitKeyPresses,
+            submitKey: 'Enter',
             typePrompt: false,
           });
           if (!retrySend.ok && retrySend.reason === EXACT_PANE_UNAVAILABLE_REASON) {
@@ -1055,10 +1057,10 @@ async function injectDispatchRequest(request, config, cwd, stateDir) {
           };
         }
       } catch {
-        // Capture failed; fall through to retry C-m.
+        // Capture failed; fall through to retry Enter.
       }
     }
-    // Draft still visible and no active task — retry C-m
+    // Draft still visible and no active task — retry Enter
     const retrySend = await sendPaneInput({
       paneTarget: resolution.paneTarget,
       exactPaneId,
@@ -1067,6 +1069,7 @@ async function injectDispatchRequest(request, config, cwd, stateDir) {
       expectedHudPaneId: dispatchTarget.expectedHudPaneId,
       prompt: request.trigger_message,
       submitKeyPresses,
+      submitKey: 'Enter',
       typePrompt: false,
       queueFirstSubmit: leaderTargeted,
     });
@@ -1136,6 +1139,21 @@ function buildDispatchAttemptEvidence(result, fallback = {}) {
   };
 }
 
+async function listTeamDirectories(teamRoot: string): Promise<string[]> {
+  const entries = await readdir(teamRoot, { withFileTypes: true }).catch(() => []);
+  const names: string[] = [];
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      names.push(entry.name);
+      continue;
+    }
+    if (!entry.isSymbolicLink()) continue;
+    const resolved = await stat(join(teamRoot, entry.name)).catch(() => null);
+    if (resolved?.isDirectory()) names.push(entry.name);
+  }
+  return names;
+}
+
 export async function drainPendingTeamDispatch({
   cwd,
   stateDir = resolveBridgeStateDir(cwd),
@@ -1155,7 +1173,10 @@ export async function drainPendingTeamDispatch({
   const teamRoot = join(stateDir, 'team');
   if (!existsSync(teamRoot)) return { processed: 0, skipped: 0, failed: 0 };
 
-  const teams = await readdir(teamRoot).catch(() => []);
+  // `.omx/state/team` also holds plain files (e.g. `notice-ledger.json`).
+  // Only real directories are Team roots; treating a file as one makes every
+  // dispatch-state write fail with ENOTDIR on `<file>/dispatch`.
+  const teams = await listTeamDirectories(teamRoot);
 
   let processed = 0;
   let skipped = 0;

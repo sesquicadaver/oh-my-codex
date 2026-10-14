@@ -96,11 +96,32 @@ export interface UltraqaStateForHud {
 }
 
 /** Team state for HUD display */
+export interface TeamWorkerForHud {
+  name: string;
+  role?: string;
+  state: import('../team/state.js').WorkerStatus['state'];
+  taskId?: string;
+  paneId?: string;
+  updatedAt?: string;
+}
+
 export interface TeamStateForHud {
   active: boolean;
   current_phase?: string;
   agent_count?: number;
   team_name?: string;
+  workers?: TeamWorkerForHud[];
+}
+
+/** Active GitGuardex branch-finish progress for HUD display. */
+export interface GuardexFinishStateForHud {
+  active: true;
+  stage: string;
+  state: string;
+  index: number;
+  total: number;
+  label: string;
+  updatedAt: string;
 }
 
 /** Metrics tracked by notify hook */
@@ -142,6 +163,7 @@ export interface HudRenderContext {
   codeReview?: CodeReviewStateForHud | null;
   ultraqa: UltraqaStateForHud | null;
   team: TeamStateForHud | null;
+  guardexFinish?: GuardexFinishStateForHud | null;
   metrics: HudMetrics | null;
   hudNotify: HudNotifyState | null;
   session: SessionStateForHud | null;
@@ -166,11 +188,17 @@ export interface HudStatusLineConfig {
   preset?: HudPreset;
 }
 
+export interface HudGuardexConfig {
+  /** Read repository-local `gx branch finish` progress into the HUD. */
+  enabled?: boolean;
+}
+
 /** HUD configuration stored in .omx/hud-config.json */
 export interface HudConfig {
   preset?: HudPreset;
   git?: HudGitConfig;
   statusLine?: HudStatusLineConfig;
+  guardex?: HudGuardexConfig;
 }
 
 export interface ResolvedHudGitConfig {
@@ -183,10 +211,15 @@ export interface ResolvedHudStatusLineConfig {
   preset: HudPreset;
 }
 
+export interface ResolvedHudGuardexConfig {
+  enabled: boolean;
+}
+
 export interface ResolvedHudConfig {
   preset: HudPreset;
   git: ResolvedHudGitConfig;
   statusLine: ResolvedHudStatusLineConfig;
+  guardex?: ResolvedHudGuardexConfig;
 }
 
 /** Default HUD configuration */
@@ -197,6 +230,9 @@ export const DEFAULT_HUD_CONFIG: ResolvedHudConfig = {
   },
   statusLine: {
     preset: 'focused',
+  },
+  guardex: {
+    enabled: false,
   },
 };
 

@@ -6,6 +6,7 @@ import { basename, dirname, join } from 'node:path';
 import { tmpdir as osTmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
 import {
   buildManagedCodexHookTrustState,
   buildManagedCodexHooksConfig,
@@ -591,23 +592,28 @@ describe('omx uninstall', () => {
     }
   });
 
-  it('fails closed without cleaning config when managed removal would shift a foreign handler', async () => {
+  it('moves existing foreign trust to its new group coordinate during uninstall', async () => {
     const wd = await mkdtemp(join(tmpdir(), 'omx-uninstall-unsafe-foreign-hooks-'));
     try {
       const home = join(wd, 'home');
       const codexDir = join(home, '.codex');
       const configPath = join(codexDir, 'config.toml');
       const hooksPath = join(codexDir, 'hooks.json');
-      const config = buildOmxConfig();
+      const foreignHash = `sha256:${createHash('sha256').update(
+        '{"event_name":"session_start","hooks":[{"async":false,"command":"echo keep-me","timeout":600,"type":"command"}]}',
+      ).digest('hex')}`;
+      const oldKey = `${hooksPath}:session_start:1:0`;
+      const newKey = `${hooksPath}:session_start:0:0`;
+      const config = `${buildOmxConfig()}\n[hooks.state.${JSON.stringify(oldKey)}]\ntrusted_hash = ${JSON.stringify(foreignHash)}\n`;
       const hooks = JSON.stringify({
         hooks: {
-          SessionStart: [{
-            matcher: 'startup|resume|clear',
-            hooks: [
-              { type: 'command', command: 'node "/repo/dist/scripts/codex-native-hook.js"' },
-              { type: 'command', command: 'echo keep-me' },
-            ],
-          }],
+          SessionStart: [
+            {
+              matcher: 'startup|resume|clear',
+              hooks: [{ type: 'command', command: 'node "/repo/dist/scripts/codex-native-hook.js"' }],
+            },
+            { hooks: [{ type: 'command', command: 'echo keep-me' }] },
+          ],
         },
       }, null, 2) + '\n';
       await mkdir(codexDir, { recursive: true });
@@ -616,14 +622,65 @@ describe('omx uninstall', () => {
 
       const res = runOmx(wd, ['uninstall'], { HOME: home });
       if (shouldSkipForSpawnPermissions(res.error)) return;
-      assert.equal(res.status, 1, res.stderr || res.stdout);
-      assert.match(res.stderr, /unsafe_managed_removal|shift a foreign coordinate/i);
-      assert.equal(await readFile(configPath, 'utf-8'), config);
-      assert.equal(await readFile(hooksPath, 'utf-8'), hooks);
+      assert.equal(res.status, 0, res.stderr || res.stdout);
+      const finalHooks = JSON.parse(await readFile(hooksPath, 'utf-8')) as {
+        hooks: { SessionStart: Array<{ hooks: Array<{ command: string }> }> };
+      };
+      assert.equal(finalHooks.hooks.SessionStart.length, 1);
+      assert.equal(finalHooks.hooks.SessionStart[0]!.hooks[0]!.command, 'echo keep-me');
+      const finalConfig = TOML.parse(await readFile(configPath, 'utf-8')) as {
+        hooks?: { state?: Record<string, { trusted_hash?: string }> };
+      };
+      assert.equal(finalConfig.hooks?.state?.[oldKey], undefined);
+      assert.equal(finalConfig.hooks?.state?.[newKey]?.trusted_hash, foreignHash);
     } finally {
       await rm(wd, { recursive: true, force: true });
     }
   });
+
+  it('prints the complete foreign trust migration plan without writes during dry-run', async () => {
+    const wd = await mkdtemp(join(tmpdir(), 'omx-uninstall-hook-coordinate-dry-run-'));
+    try {
+      const home = join(wd, 'home');
+      const codexDir = join(home, '.codex');
+      const configPath = join(codexDir, 'config.toml');
+      const hooksPath = join(codexDir, 'hooks.json');
+      const foreignHash = `sha256:${createHash('sha256').update(
+        '{"event_name":"session_start","hooks":[{"async":false,"command":"echo keep-me","timeout":600,"type":"command"}]}',
+      ).digest('hex')}`;
+      const oldKey = `${hooksPath}:session_start:1:0`;
+      const newKey = `${hooksPath}:session_start:0:0`;
+      const config = `${buildOmxConfig()}\n[hooks.state.${JSON.stringify(oldKey)}]\ntrusted_hash = ${JSON.stringify(foreignHash)}\n`;
+      const hooks = JSON.stringify({
+        hooks: {
+          SessionStart: [
+            {
+              matcher: 'startup|resume|clear',
+              hooks: [{ type: 'command', command: 'node "/repo/dist/scripts/codex-native-hook.js"' }],
+            },
+            { hooks: [{ type: 'command', command: 'echo keep-me' }] },
+          ],
+        },
+      }, null, 2) + '\n';
+      await mkdir(codexDir, { recursive: true });
+      await writeFile(configPath, config);
+      await writeFile(hooksPath, hooks);
+      const originalConfig = await readFile(configPath);
+      const originalHooks = await readFile(hooksPath);
+
+      const res = runOmx(wd, ['uninstall', '--dry-run'], { HOME: home });
+      if (shouldSkipForSpawnPermissions(res.error)) return;
+      assert.equal(res.status, 0, res.stderr || res.stdout);
+      assert.match(res.stdout, /Would remove OMX hook SessionStart \[0,0\]/);
+      assert.match(res.stdout, /Would move foreign hook SessionStart \[1,0\] -> \[0,0\]/);
+      assert.ok(res.stdout.includes(`Would rewrite [hooks.state."${oldKey}"] -> [hooks.state."${newKey}"]`));
+      assert.deepEqual(await readFile(configPath), originalConfig);
+      assert.deepEqual(await readFile(hooksPath), originalHooks);
+    } finally {
+      await rm(wd, { recursive: true, force: true });
+    }
+  });
+
   it('fails before uninstall writes when marker-wrapped trust state has foreign siblings', async () => {
     const representations = [
       {
@@ -2451,12 +2508,12 @@ describe('omx uninstall', () => {
     try {
       const home = join(wd, 'home');
       const codexDir = join(home, '.codex');
-      const canonicalHelp = join(codexDir, 'skills', 'help');
-      const legacyHelp = join(home, '.agents', 'skills', 'help');
-      await mkdir(canonicalHelp, { recursive: true });
-      await mkdir(legacyHelp, { recursive: true });
-      await writeFile(join(canonicalHelp, 'SKILL.md'), '# canonical help\n');
-      await writeFile(join(legacyHelp, 'SKILL.md'), '# legacy help\n');
+      const canonicalDoctor = join(codexDir, 'skills', 'doctor');
+      const legacyDoctor = join(home, '.agents', 'skills', 'doctor');
+      await mkdir(canonicalDoctor, { recursive: true });
+      await mkdir(legacyDoctor, { recursive: true });
+      await writeFile(join(canonicalDoctor, 'SKILL.md'), '# canonical doctor\n');
+      await writeFile(join(legacyDoctor, 'SKILL.md'), '# legacy doctor\n');
 
       const res = runOmx(wd, ['uninstall', '--keep-config'], { HOME: home });
       if (shouldSkipForSpawnPermissions(res.error)) return;
@@ -2465,7 +2522,7 @@ describe('omx uninstall', () => {
         res.stdout,
         /Warning: 1 overlapping skill names remain between .*\.codex[\\/]+skills and .*\.agents[\\/]+skills; 1 differ in SKILL\.md content\. omx uninstall only removes the active canonical skill root; archive or remove ~\/\.agents\/skills if Codex still shows duplicates/,
       );
-      assert.equal(existsSync(canonicalHelp), false, 'canonical OMX skill should be removed');
+      assert.equal(existsSync(canonicalDoctor), false, 'canonical OMX skill should be removed');
       assert.equal(existsSync(join(home, '.agents', 'skills')), true, 'legacy skill root should remain for manual cleanup');
     } finally {
       await rm(wd, { recursive: true, force: true });
@@ -2477,12 +2534,12 @@ describe('omx uninstall', () => {
     try {
       const home = join(wd, 'home');
       const codexDir = join(home, '.codex');
-      const canonicalHelp = join(codexDir, 'skills', 'help');
-      const legacyDoctor = join(home, '.agents', 'skills', 'doctor');
-      await mkdir(canonicalHelp, { recursive: true });
-      await mkdir(legacyDoctor, { recursive: true });
-      await writeFile(join(canonicalHelp, 'SKILL.md'), '# canonical help\n');
-      await writeFile(join(legacyDoctor, 'SKILL.md'), '# legacy doctor\n');
+      const canonicalDoctor = join(codexDir, 'skills', 'doctor');
+      const legacyWiki = join(home, '.agents', 'skills', 'wiki');
+      await mkdir(canonicalDoctor, { recursive: true });
+      await mkdir(legacyWiki, { recursive: true });
+      await writeFile(join(canonicalDoctor, 'SKILL.md'), '# canonical doctor\n');
+      await writeFile(join(legacyWiki, 'SKILL.md'), '# legacy wiki\n');
 
       const res = runOmx(wd, ['uninstall', '--keep-config'], { HOME: home });
       if (shouldSkipForSpawnPermissions(res.error)) return;
@@ -2491,7 +2548,7 @@ describe('omx uninstall', () => {
         res.stdout,
         /Warning: legacy ~\/\.agents\/skills still exists \(1 skills\)\. omx uninstall does not remove that historical root automatically; archive or remove ~\/\.agents\/skills if Codex still shows stale or duplicate skills/,
       );
-      assert.equal(existsSync(canonicalHelp), false, 'canonical OMX skill should be removed');
+      assert.equal(existsSync(canonicalDoctor), false, 'canonical OMX skill should be removed');
       assert.equal(existsSync(join(home, '.agents', 'skills')), true, 'legacy skill root should remain for manual cleanup');
     } finally {
       await rm(wd, { recursive: true, force: true });
@@ -2503,9 +2560,9 @@ describe('omx uninstall', () => {
     try {
       const home = join(wd, 'home');
       const codexDir = join(home, '.codex');
-      const canonicalHelp = join(codexDir, 'skills', 'help');
-      await mkdir(canonicalHelp, { recursive: true });
-      await writeFile(join(canonicalHelp, 'SKILL.md'), '# canonical help\n');
+      const canonicalDoctor = join(codexDir, 'skills', 'doctor');
+      await mkdir(canonicalDoctor, { recursive: true });
+      await writeFile(join(canonicalDoctor, 'SKILL.md'), '# canonical doctor\n');
 
       const res = runOmx(wd, ['uninstall', '--keep-config'], { HOME: home });
       if (shouldSkipForSpawnPermissions(res.error)) return;
@@ -2521,13 +2578,13 @@ describe('omx uninstall', () => {
     const wd = await mkdtemp(join(tmpdir(), 'omx-uninstall-'));
     try {
       const home = join(wd, 'home');
-      const projectSkillsHelp = join(wd, '.codex', 'skills', 'help');
-      const legacyHelp = join(home, '.agents', 'skills', 'help');
-      await mkdir(projectSkillsHelp, { recursive: true });
-      await mkdir(legacyHelp, { recursive: true });
+      const projectSkillsDoctor = join(wd, '.codex', 'skills', 'doctor');
+      const legacyDoctor = join(home, '.agents', 'skills', 'doctor');
+      await mkdir(projectSkillsDoctor, { recursive: true });
+      await mkdir(legacyDoctor, { recursive: true });
       await mkdir(join(wd, '.omx'), { recursive: true });
-      await writeFile(join(projectSkillsHelp, 'SKILL.md'), '# project help\n');
-      await writeFile(join(legacyHelp, 'SKILL.md'), '# legacy help\n');
+      await writeFile(join(projectSkillsDoctor, 'SKILL.md'), '# project doctor\n');
+      await writeFile(join(legacyDoctor, 'SKILL.md'), '# legacy doctor\n');
       await writeFile(join(wd, '.omx', 'setup-scope.json'), JSON.stringify({ scope: 'project' }));
 
       const res = runOmx(wd, ['uninstall', '--keep-config'], { HOME: home });

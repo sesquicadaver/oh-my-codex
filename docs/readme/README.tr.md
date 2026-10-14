@@ -14,7 +14,7 @@
 
 [OpenAI Codex CLI](https://github.com/openai/codex) için çok ajanlı orkestrasyon katmanı.
 
-## v0.9.0'daki Yenilikler — Spark Initiative
+## v0.9.0 için geçmiş sürüm notları — Spark Initiative
 
 Spark Initiative, OMX içindeki native keşif ve inceleme yolunu güçlendiren sürümdür.
 
@@ -32,7 +32,7 @@ Codex içinde:
 ```text
 $deep-interview "clarify the auth change"
 $ralplan "approve the auth plan and review tradeoffs"
-$ralph "carry the approved plan to completion"
+$ultragoal "carry the approved plan to completion"
 $team 3:executor "execute the approved plan in parallel"
 ```
 
@@ -48,7 +48,7 @@ omx team shutdown <team-name>
 
 1. `$deep-interview` — kapsam veya sınırlar hâlâ net değilse.
 2. `$ralplan` — netleşen kapsamı onaylanmış bir mimari ve uygulama planına dönüştürmek için.
-3. `$team` veya `$ralph` — koordineli paralel yürütme için `$team`, tek sahipli kalıcı tamamlama/doğrulama döngüsü için `$ralph` kullanın.
+3. `$team` veya `$ultragoal` — koordineli paralel yürütme için `$team`, işi tamamlanana kadar kalıcı hedef takibi için `$ultragoal` kullanın.
 
 ## Temel Model
 
@@ -124,10 +124,10 @@ Ayarlandığında, bu kökler dışındaki `workingDirectory` değerleri reddedi
 Varsayılan olarak, OMX şunu enjekte eder:
 
 ```text
--c model_instructions_file="<cwd>/AGENTS.md"
+-c model_instructions_file="<cwd>/.omx/state/sessions/<session-id>/AGENTS.md"
 ```
 
-Bu, `CODEX_HOME` içindeki `AGENTS.md` ile proje `AGENTS.md` dosyasını (varsa) birleştirir ve ardından çalışma zamanı kaplamasını ekler.
+Bu üretilen dosya yalnızca OMX çalışma zamanı kaplamasını içerir (`<!-- OMX:RUNTIME:START -->` ile `<!-- OMX:RUNTIME:END -->` arası). `CODEX_HOME/AGENTS.md` ve proje `AGENTS.md` dosyalarındaki kalıcı yönlendirme buraya kopyalanmaz; Codex bunları kendi doğal AGENTS keşfiyle bir kez yükler. Team workerları kendi talimatlarını oluşturmaya devam eder.
 Codex davranışını genişletir, ancak Codex çekirdek sistem politikalarını değiştirmez/atlamaz.
 
 Kontroller:
@@ -192,8 +192,8 @@ Notlar:
   - `notify = ["node", "..."]`
   - `model_reasoning_effort = "medium"`
   - `developer_instructions = "..."`
-  - `[features] multi_agent = true, child_agents_md = true`
-  - MCP sunucu girişleri (`omx_state`, `omx_memory`, `omx_code_intel`, `omx_trace`, `omx_wiki`)
+  - `[features] multi_agent = true` (mevcut olduğunda)
+  - MCP sunucu girişleri (`omx_state`, `omx_memory`, `omx_code_intel`, `omx_trace`, `omx_wiki` (repository wiki sunucusu), `omx_hermes` (sınırlı oturum durumu/koordinasyon köprüsü))
   - `[tui] status_line`
 - Kapsama özel `AGENTS.md`
 - `.omx/` çalışma zamanı dizinleri ve HUD yapılandırması
@@ -205,7 +205,7 @@ Notlar:
 
 Örnekler:
 - Ajanlar: `architect`, `planner`, `executor`, `debugger`, `verifier`, `security-reviewer`
-- Skill'ler: `deep-interview`, `ralplan`, `team`, `ralph`, `plan`, `cancel`
+- Skill'ler: `deep-interview`, `ralplan`, `team`, `ultragoal`, `plan`, `cancel`
 
 ## Proje Yapısı
 
@@ -257,6 +257,26 @@ npm test
 ## Teşekkürler
 
 [oh-my-claudecode](https://github.com/Yeachan-Heo/oh-my-claudecode)'dan ilham alınmıştır, Codex CLI için uyarlanmıştır.
+
+## Diller
+
+- [English](../../README.md)
+- [한국어](./README.ko.md)
+- [日本語](./README.ja.md)
+- [简体中文](./README.zh.md)
+- [繁體中文](./README.zh-TW.md)
+- [Tiếng Việt](./README.vi.md)
+- [Español](./README.es.md)
+- [Português](./README.pt.md)
+- [Русский](./README.ru.md)
+- [Türkçe](./README.tr.md)
+- [Deutsch](./README.de.md)
+- [Français](./README.fr.md)
+- [Italiano](./README.it.md)
+- [Ελληνικά](./README.el.md)
+- [Polski](./README.pl.md)
+- [Українська](./README.uk.md)
+- [Bahasa Indonesia](./README.id.md)
 
 ## Lisans
 

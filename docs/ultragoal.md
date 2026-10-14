@@ -56,7 +56,7 @@ For intermediate stories, do **not** call `update_goal`; checkpoint the OMX stor
 omx ultragoal checkpoint --goal-id G001-example --status complete --evidence "npm test passed; docs updated" --codex-goal-json ./get-goal.json
 ```
 
-For the final story, run the whole-run audit plus the mandatory final `ai-slop-cleaner`, post-cleaner verification, architecture-invariant audit, and independent `$code-review` gate. If review is clean (`APPROVE` + `CLEAR` with distinct `code-reviewer` and `architect` subagent evidence) and every required architecture/domain invariant from the brief/spec/planning artifacts is proved with implementation, test, and review evidence, call `update_goal({status: "complete"})`, call `get_goal` again, and checkpoint with the fresh complete aggregate snapshot plus `--quality-gate-json`. If review is non-clean or any invariant is unproved, do not call `update_goal`; use `omx ultragoal record-review-blockers` to append a durable blocker-resolution story and continue.
+For the final story, ordinary mode requires targeted verification only (evidence that implementation is done plus `verification` commands/evidence). Cleaner, architect, and QA review lanes are advisory in ordinary mode. Pass `--strict` to preserve the fail-closed cohort gate: run the mandatory final `ai-slop-cleaner`, post-cleaner verification, architecture-invariant audit, and independent `$code-review` gate; if review is clean (`APPROVE` + `CLEAR` with distinct `code-reviewer` and `architect` subagent evidence) and every required architecture/domain invariant is proved, call `update_goal({status: "complete"})`, call `get_goal` again, and checkpoint with `--quality-gate-json --strict`. If review is non-clean or any invariant is unproved, do not call `update_goal`; use `omx ultragoal record-review-blockers` to append a durable blocker-resolution story and continue.
 
 
 Failure handling:
@@ -142,7 +142,7 @@ The final ultragoal story is not complete until the active agent has run the fin
 2. Run `ai-slop-cleaner` on changed files only; if there are no relevant edits, the cleaner still runs and records a passed/no-op report.
 3. Rerun verification after the cleaner pass.
 4. Run the architecture-invariant audit: derive non-negotiable architecture/domain invariants from the brief/spec/interview/accepted steering/goal artifacts, list the source artifacts, and prove each required invariant with implementation, test, and independent review evidence.
-5. Run `$code-review` through the independent review path. Clean means `codeReview.recommendation: "APPROVE"`, `codeReview.architectStatus: "CLEAR"`, `codeReview.independentReview` contains distinct completed `code-reviewer` and `architect` subagent evidence, and `architectureInvariantGate.status: "passed"` proves every required invariant. `COMMENT`, `WATCH`, `REQUEST CHANGES`, `BLOCK`, missing subagent evidence, unavailable delegation, same-lane/self-review, and unproved architecture invariants are non-clean. If the approved plan already used Scholastic for ontology-heavy review, carry that advisory evidence into the quality gate; non-clean Scholastic findings should be treated as blocker evidence rather than a completion claim.
+5. Run `$code-review` through the independent review path. Clean means `codeReview.recommendation: "APPROVE"`, `codeReview.architectStatus: "CLEAR"`, `codeReview.independentReview` contains distinct completed `code-reviewer` and `architect` subagent evidence, and `architectureInvariantGate.status: "passed"` proves every required invariant. `COMMENT`, `WATCH`, `REQUEST CHANGES`, `BLOCK`, missing subagent evidence, unavailable delegation, same-lane/self-review, and unproved architecture invariants are non-clean.
 6. If review or invariant proof is non-clean, do **not** call `update_goal`. Record durable blocker work instead:
 
 
@@ -193,13 +193,6 @@ The final ultragoal story is not complete until the active agent has run the fin
 }
 ```
 
-When Scholastic advisory evidence exists for ontology-heavy goals, add it alongside the required fields:
-
-```json
-{
-  "scholasticReview": { "recommendation": "APPROVE", "ontologyStatus": "SOUND", "evidence": "terms normalized; no category mistake; modal claims separated" }
-}
-```
 
 ## Integration constraints
 

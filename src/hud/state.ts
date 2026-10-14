@@ -4,7 +4,7 @@
  * Reads .omx/state/ files to build HUD render context.
  */
 
-import { readFile } from 'fs/promises';
+import { open, readFile, readdir, stat } from 'fs/promises';
 import { execFileSync } from 'child_process';
 import { join, basename } from 'path';
 import { findGitLayout, readGitLayoutFile } from '../utils/git-layout.js';
@@ -12,7 +12,8 @@ import { resolveOmxDisplayVersionSync } from '../utils/version.js';
 import { getDefaultBridge, isBridgeEnabled } from '../runtime/bridge.js';
 import type { RuntimeSnapshot } from '../runtime/bridge.js';
 import { getBaseStateDir, getStateFilePath, readCurrentSessionId, resolveRuntimeStateScope } from '../mcp/state-paths.js';
-import { teamReadPhase as readTeamPhase } from '../team/team-ops.js';
+import { ABSOLUTE_MAX_WORKERS, teamReadPhase as readTeamPhase, teamReadWorkerStatus } from '../team/team-ops.js';
+import { TEAM_NAME_SAFE_PATTERN, WORKER_NAME_SAFE_PATTERN } from '../team/contracts.js';
 
 import { listActiveSkills, readVisibleSkillActiveStateForStateDir } from '../state/skill-active.js';
 import {
@@ -39,6 +40,7 @@ import type {
   ResolvedHudConfig,
   HudGitDisplay,
   LateGateHudSource,
+  GuardexFinishStateForHud,
 } from './types.js';
 import { DEFAULT_HUD_CONFIG } from './types.js';
 
@@ -53,6 +55,14 @@ async function readJsonFile<T>(path: string): Promise<T | null> {
 
 async function readAuthoritativeModeState<T>(cwd: string, mode: string): Promise<T | null> {
   const sessionId = await readCurrentSessionId(cwd);
+  return readAuthoritativeModeStateForSession<T>(cwd, mode, sessionId);
+}
+
+async function readAuthoritativeModeStateForSession<T>(
+  cwd: string,
+  mode: string,
+  sessionId: string | undefined,
+): Promise<T | null> {
   return readJsonFile<T>(getStateFilePath(`${mode}-state.json`, cwd, sessionId));
 }
 
@@ -74,6 +84,142 @@ function sanitizeOptionalString(value: unknown): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
+const GUARDEX_FINISH_TAIL_BYTES = 64 * 1024;
+const GUARDEX_FINISH_MAX_CANDIDATES = 32;
+const GUARDEX_FINISH_MAX_AGE_MS = 24 * 60 * 60 * 1_000;
+const GUARDEX_FINISH_RUN_ID_RE = /^finish-[^-]+-(\d+)-/;
+const GUARDEX_FINISH_FILE_RE = /^finish-([0-9a-z]+)-\d+-[^/]+\.jsonl$/;
+const GUARDEX_TERMINAL_STATES = new Set(['failed', 'finished']);
+
+interface GuardexFinishStateDependencies {
+  statFile?: (path: string) => Promise<{ mtimeMs: number }>;
+}
+
+interface RawGuardexFinishEvent {
+  schemaVersion?: unknown;
+  runId?: unknown;
+  timestamp?: unknown;
+  stage?: unknown;
+  state?: unknown;
+  index?: unknown;
+  total?: unknown;
+  label?: unknown;
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+async function readFileTail(path: string): Promise<string> {
+  const handle = await open(path, 'r');
+  try {
+    const fileStat = await handle.stat();
+    const length = Math.min(fileStat.size, GUARDEX_FINISH_TAIL_BYTES);
+    if (length <= 0) return '';
+    const buffer = Buffer.alloc(length);
+    await handle.read(buffer, 0, length, fileStat.size - length);
+    return buffer.toString('utf8');
+  } finally {
+    await handle.close();
+  }
+}
+
+function normalizeGuardexFinishEvent(raw: RawGuardexFinishEvent): GuardexFinishStateForHud | null {
+  if (raw.schemaVersion !== 1) return null;
+  const runId = sanitizeOptionalString(raw.runId);
+  const timestamp = sanitizeOptionalString(raw.timestamp);
+  const stage = sanitizeOptionalString(raw.stage);
+  const state = sanitizeOptionalString(raw.state);
+  const label = sanitizeOptionalString(raw.label);
+  const index = Number(raw.index);
+  const total = Number(raw.total);
+  const pidMatch = runId?.match(GUARDEX_FINISH_RUN_ID_RE);
+  const pid = Number(pidMatch?.[1]);
+  const updatedAt = timestamp ? Date.parse(timestamp) : Number.NaN;
+
+  if (!runId || !timestamp || !stage || stage === 'finish' || !state || state === 'pending' || !label) return null;
+  if (!Number.isSafeInteger(index) || index <= 0 || !Number.isSafeInteger(total) || total <= 0 || index > total) return null;
+  if (!Number.isSafeInteger(pid) || pid <= 0 || !isProcessAlive(pid)) return null;
+  if (!Number.isFinite(updatedAt) || Date.now() - updatedAt > GUARDEX_FINISH_MAX_AGE_MS) return null;
+  if (GUARDEX_TERMINAL_STATES.has(state)) return null;
+
+  return {
+    active: true,
+    stage: stage.slice(0, 40),
+    state: state.slice(0, 40),
+    index,
+    total,
+    label: label.slice(0, 80),
+    updatedAt: timestamp,
+  };
+}
+
+async function readGuardexFinishFile(path: string): Promise<GuardexFinishStateForHud | null> {
+  try {
+    const lines = (await readFileTail(path)).split('\n');
+    for (let index = lines.length - 1; index >= 0; index -= 1) {
+      const line = lines[index]?.trim();
+      if (!line) continue;
+      try {
+        const event = JSON.parse(line) as RawGuardexFinishEvent;
+        const state = normalizeGuardexFinishEvent(event);
+        if (state) return state;
+        if (event.schemaVersion === 1 && GUARDEX_TERMINAL_STATES.has(String(event.state || ''))) return null;
+      } catch {
+        // The writer may be appending the trailing JSON line while the HUD reads it.
+      }
+    }
+  } catch {
+    // Optional observability must remain fail-open for missing or unreadable files.
+  }
+  return null;
+}
+
+/** Read the newest active GitGuardex branch-finish event stream. */
+export async function readGuardexFinishState(
+  cwd: string,
+  dependencies: GuardexFinishStateDependencies = {},
+): Promise<GuardexFinishStateForHud | null> {
+  // Guardex writes to the repository-local state directory, independent of
+  // OMX session/team state-root overrides inherited by the HUD process.
+  const repoRoot = findGitLayout(cwd)?.worktreeRoot ?? cwd;
+  const directory = join(repoRoot, '.omx', 'state', 'finish-runs');
+  try {
+    const entries = await readdir(directory, { withFileTypes: true });
+    // Guardex encodes the run start time as base36 in each filename. Bound the
+    // newest run IDs before metadata reads so one HUD tick stays O(1).
+    const recentEntries = entries
+      .flatMap(entry => {
+        if (!entry.isFile()) return [];
+        const match = entry.name.match(GUARDEX_FINISH_FILE_RE);
+        if (!match) return [];
+        const startedAt = Number.parseInt(match[1], 36);
+        return Number.isSafeInteger(startedAt) ? [{ name: entry.name, startedAt }] : [];
+      })
+      .sort((left, right) => right.startedAt - left.startedAt || right.name.localeCompare(left.name))
+      .slice(0, GUARDEX_FINISH_MAX_CANDIDATES);
+    const statFile = dependencies.statFile ?? stat;
+    const candidates = await Promise.all(recentEntries
+      .map(async entry => ({
+        path: join(directory, entry.name),
+        modifiedAt: (await statFile(join(directory, entry.name))).mtimeMs,
+      })));
+    candidates.sort((left, right) => right.modifiedAt - left.modifiedAt);
+    for (const candidate of candidates) {
+      const state = await readGuardexFinishFile(candidate.path);
+      if (state) return state;
+    }
+  } catch {
+    // GitGuardex is optional; repos without its state directory render normally.
+  }
+  return null;
+}
+
 export function normalizeHudConfig(raw: HudConfig | null | undefined): ResolvedHudConfig {
   const normalized: ResolvedHudConfig = {
     preset: DEFAULT_HUD_CONFIG.preset,
@@ -82,6 +228,9 @@ export function normalizeHudConfig(raw: HudConfig | null | undefined): ResolvedH
     },
     statusLine: {
       preset: DEFAULT_HUD_CONFIG.statusLine.preset,
+    },
+    guardex: {
+      enabled: DEFAULT_HUD_CONFIG.guardex?.enabled === true,
     },
   };
 
@@ -107,6 +256,10 @@ export function normalizeHudConfig(raw: HudConfig | null | undefined): ResolvedH
     if (isValidPreset(raw.statusLine.preset)) {
       normalized.statusLine.preset = raw.statusLine.preset;
     }
+  }
+
+  if (raw.guardex && typeof raw.guardex === 'object' && typeof raw.guardex.enabled === 'boolean') {
+    normalized.guardex = { enabled: raw.guardex.enabled };
   }
 
   return normalized;
@@ -291,7 +444,45 @@ export async function readUltraqaState(cwd: string): Promise<UltraqaStateForHud 
 
 export async function readTeamState(cwd: string): Promise<TeamStateForHud | null> {
   const state = await readAuthoritativeModeState<TeamStateForHud>(cwd, 'team');
-  return state?.active ? state : null;
+  return state?.active ? readTeamWorkers(cwd, state) : null;
+}
+
+type TeamRosterMember = Record<string, unknown> & { name: string };
+
+async function readTeamMembers(stateRoot: string, name: string): Promise<TeamRosterMember[] | null> {
+  const teamDir = join(stateRoot, 'team', name);
+  // HUD tick 只读取 roster 文件，不调用会迁移或修复 Team state 的 lifecycle reader。
+  const manifest = await readJsonFile<{ name?: unknown; workers?: unknown }>(join(teamDir, 'manifest.v2.json'));
+  const config = manifest ?? await readJsonFile<{ name?: unknown; workers?: unknown }>(join(teamDir, 'config.json'));
+  if (config?.name !== name || !Array.isArray(config.workers)) return null;
+  const seen = new Set<string>();
+  return config.workers.slice(0, ABSOLUTE_MAX_WORKERS).filter((value): value is TeamRosterMember => {
+    if (!value || typeof value !== 'object' || typeof value.name !== 'string') return false;
+    if (!WORKER_NAME_SAFE_PATTERN.test(value.name) || seen.has(value.name)) return false;
+    seen.add(value.name);
+    return true;
+  });
+}
+
+async function readTeamWorkers(cwd: string, team: TeamStateForHud | null, stateRoot = getBaseStateDir(cwd)): Promise<TeamStateForHud | null> {
+  const name = sanitizeOptionalString(team?.team_name);
+  if (!team?.active || !name || !TEAM_NAME_SAFE_PATTERN.test(name)) return team;
+  const members = await readTeamMembers(stateRoot, name);
+  if (!members) return team;
+  const workers = await Promise.all(members.map(async member => {
+    const workerName = member.name;
+    const status = await teamReadWorkerStatus(name, workerName, cwd, stateRoot);
+    return {
+      name: workerName,
+      role: sanitizeOptionalString(member.role),
+      paneId: typeof member.pane_id === 'string' && /^%\d+$/.test(member.pane_id) ? member.pane_id : undefined,
+      state: status.state,
+      taskId: sanitizeOptionalString(status.current_task_id),
+      updatedAt: Number.isFinite(Date.parse(status.updated_at)) && status.updated_at !== '1970-01-01T00:00:00.000Z'
+        ? status.updated_at : undefined,
+    };
+  }));
+  return { ...team, workers };
 }
 
 export async function readMetrics(cwd: string): Promise<HudMetrics | null> {
@@ -314,7 +505,8 @@ export async function readSessionState(cwd: string): Promise<SessionStateForHud 
 }
 
 export async function readHudConfig(cwd: string): Promise<ResolvedHudConfig> {
-  const config = await readJsonFile<HudConfig>(join(cwd, '.omx', 'hud-config.json'));
+  const repoRoot = findGitLayout(cwd)?.worktreeRoot ?? cwd;
+  const config = await readJsonFile<HudConfig>(join(repoRoot, '.omx', 'hud-config.json'));
   return normalizeHudConfig(config);
 }
 
@@ -536,6 +728,61 @@ function mergeTeamPhase(
   return { active: true, current_phase: canonicalPhase };
 }
 
+function resolveUltragoalForHud(
+  canonicalSkills: Map<string, { phase?: string }>,
+  artifact: UltragoalStateForHud | null,
+  detail: UltragoalStateForHud | null,
+): UltragoalStateForHud | null {
+  return artifact
+    ?? (shouldSurfaceCanonicalSkill(canonicalSkills, 'ultragoal', detail)
+      ? mergePhase(detail?.active === true ? detail : null, canonicalPhaseForSkill(canonicalSkills, 'ultragoal'))
+      : null);
+}
+
+function resolveTeamForHud(
+  canonicalSkills: Map<string, { phase?: string }>,
+  detail: TeamStateForHud | null,
+  canonicalTeamPhase?: string,
+): TeamStateForHud | null {
+  return shouldSurfaceCanonicalSkill(canonicalSkills, 'team', detail)
+    ? mergeTeamPhase(
+      detail?.active === true ? detail : null,
+      canonicalPhaseForSkill(canonicalSkills, 'team'),
+      canonicalTeamPhase,
+    )
+    : null;
+}
+
+export interface HudLayoutProjection {
+  ultragoalActive: boolean;
+  teamWorkerCount: number;
+}
+
+export async function readHudLayoutProjection(cwd: string): Promise<HudLayoutProjection> {
+  const stateDir = getBaseStateDir(cwd);
+  const currentSessionId = await readCurrentSessionId(cwd);
+  const [canonicalSkillState, ultragoalArtifact, ultragoalDetail, teamDetail] = await Promise.all([
+    readVisibleSkillActiveStateForStateDir(stateDir, currentSessionId),
+    readUltragoalState(cwd),
+    readAuthoritativeModeStateForSession<UltragoalStateForHud>(cwd, 'ultragoal', currentSessionId),
+    readAuthoritativeModeStateForSession<TeamStateForHud>(cwd, 'team', currentSessionId),
+  ]);
+  const canonicalSkills = new Map(
+    listActiveSkills(canonicalSkillState).map((entry) => [entry.skill, entry] as const),
+  );
+  const ultragoal = resolveUltragoalForHud(canonicalSkills, ultragoalArtifact, ultragoalDetail);
+  const team = resolveTeamForHud(canonicalSkills, teamDetail);
+  const teamName = sanitizeOptionalString(team?.team_name);
+  const members = team?.active === true && teamName && TEAM_NAME_SAFE_PATTERN.test(teamName)
+    ? await readTeamMembers(stateDir, teamName)
+    : null;
+
+  return {
+    ultragoalActive: ultragoal?.active === true,
+    teamWorkerCount: members?.length ?? 0,
+  };
+}
+
 function activeAutopilotPhase(autopilot: AutopilotStateForHud | null): string | undefined {
   if (autopilot?.active !== true) return undefined;
   return sanitizeOptionalString(autopilot.current_phase)?.toLowerCase().replace(/_/g, '-');
@@ -614,12 +861,13 @@ function codeReviewFromSubagentEvidence(
 export async function readAllState(cwd: string, config: ResolvedHudConfig = DEFAULT_HUD_CONFIG): Promise<HudRenderContext> {
   const version = readVersion();
   const gitBranch = buildGitBranchLabel(cwd, config);
-  const [metrics, hudNotify, session, currentSessionId, subagentTracking] = await Promise.all([
+  const [metrics, hudNotify, session, currentSessionId, subagentTracking, guardexFinish] = await Promise.all([
     readMetrics(cwd),
     readHudNotifyState(cwd),
     readSessionState(cwd),
     readCurrentSessionId(cwd),
     readSubagentTrackingState(cwd),
+    config.guardex?.enabled === true ? readGuardexFinishState(cwd) : Promise.resolve(null),
   ]);
   const stateDir = getBaseStateDir(cwd);
   const canonicalSkillState = await readVisibleSkillActiveStateForStateDir(stateDir, currentSessionId);
@@ -657,10 +905,7 @@ export async function readAllState(cwd: string, config: ResolvedHudConfig = DEFA
   const ralph = shouldSurfaceCanonicalSkill(canonicalSkills, 'ralph', ralphDetail)
     ? mergePhase(ralphDetail?.active === true ? ralphDetail : null, canonicalPhaseForSkill(canonicalSkills, 'ralph'))
     : null;
-  const ultragoal = ultragoalArtifact
-    ?? (shouldSurfaceCanonicalSkill(canonicalSkills, 'ultragoal', ultragoalDetail)
-      ? mergePhase(ultragoalDetail?.active === true ? ultragoalDetail : null, canonicalPhaseForSkill(canonicalSkills, 'ultragoal'))
-      : null);
+  const ultragoal = resolveUltragoalForHud(canonicalSkills, ultragoalArtifact, ultragoalDetail);
   const ultrawork = shouldSurfaceCanonicalSkill(canonicalSkills, 'ultrawork', ultraworkDetail)
     ? mergePhase(ultraworkDetail?.active === true ? ultraworkDetail : null, canonicalPhaseForSkill(canonicalSkills, 'ultrawork'))
     : null;
@@ -698,13 +943,7 @@ export async function readAllState(cwd: string, config: ResolvedHudConfig = DEFA
     })()
     : supervisedAutopilotStage<UltraqaStateForHud>(autopilot, 'ultraqa');
   const canonicalTeamPhase = await readCanonicalTeamPhase(cwd, teamDetail?.active === true ? teamDetail : null);
-  const team = shouldSurfaceCanonicalSkill(canonicalSkills, 'team', teamDetail)
-    ? mergeTeamPhase(
-      teamDetail?.active === true ? teamDetail : null,
-      canonicalPhaseForSkill(canonicalSkills, 'team'),
-      canonicalTeamPhase,
-    )
-    : null;
+  const team = resolveTeamForHud(canonicalSkills, teamDetail, canonicalTeamPhase);
   const autoresearch = shouldSurfaceCanonicalSkill(canonicalSkills, 'autoresearch', autoresearchDetail)
     ? mergePhase(
       autoresearchDetail?.active === true ? autoresearchDetail : null,
@@ -732,7 +971,8 @@ export async function readAllState(cwd: string, config: ResolvedHudConfig = DEFA
     autoresearch,
     codeReview,
     ultraqa,
-    team,
+    team: await readTeamWorkers(cwd, team, stateDir),
+    guardexFinish,
     metrics,
     hudNotify,
     session,

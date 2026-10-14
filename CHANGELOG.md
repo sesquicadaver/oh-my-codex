@@ -4,6 +4,288 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.21.11] - 2026-10-13
+
+Patch release for `v0.21.10..7e0b5f2330b9d85c5fdb9709ec0104e099836f4c` (3 commits, 2 files, +68/−5, PR #3781, fixes #3779).
+
+### Fixed
+
+- Stop writing inherited `model_provider` defaults into native agent TOMLs. Provider changes in `config.toml` now take effect without `omx setup --force`, while explicit per-agent model overrides remain supported (#3781, fixes #3779; authored by @Yeachan-Heo, co-authored by @gaebal-gajae).
+
+Full inventory, contributors, compatibility notes, and verification: [release notes](docs/release-notes-0.21.11.md) and [release readiness](docs/qa/release-readiness-0.21.11.md).
+
+**Full Changelog**: https://github.com/Yeachan-Heo/oh-my-codex/compare/v0.21.10...v0.21.11
+
+## [0.21.10] - 2026-10-12
+
+Patch release for `v0.21.9..72fee0236cf8a4b45e6dd9b3d826871f402b84ae` (16 commits, 15 files, +1067/−82, PRs #3765/#3768/#3771/#3772/#3774/#3775/#3777, linked issues #3655/#3766/#3776).
+
+### Highlights
+
+- TOML configuration merge robustness: multi-line arrays in the `[tui]` configuration section are now correctly preserved during config merge operations, preventing loss of array elements and enabling complex TUI customization without manual repair (#3777, fixes #3776).
+- Astra-defaults evaluation infrastructure: the astra-defaults RunRecord collector gains base URL support for flexible test fixture hosting and implements repository cloning with fixture context, enabling live cost and quality evaluation across model configurations. Collector is now hermetic with bounded Codex v0.162+ JSON-line parsing and includes CI integration (#3655, #3765, #3768, #3772).
+- npm registry-visibility diagnostics: registry-visibility checks now include extended timeout windows and improved diagnostics to surface transient publication issues earlier and support troubleshooting of npm registry visibility failures in CI pipelines (#3771).
+
+### Added
+
+- Astra-defaults collector base URL support and repository cloning with fixture context (#3765, #3772).
+- npm registry-visibility check extended timeout and improved diagnostics (#3771).
+
+### Fixed
+
+- Preserve multi-line arrays in TOML `[tui]` configuration sections during merge operations (#3777, fixes #3776).
+- Harden astra-defaults collector for hermetic operation with correct handling of Codex v0.162+ JSON-line output format (#3772, #3774).
+- astra-defaults eval test failures and add to CI (#3768, fixes #3766).
+
+### Maintenance
+
+- astra-defaults evaluation results recorded for live-suite baseline (#3775).
+
+Full inventory, contributors, compatibility notes, and verification: [release notes](docs/release-notes-0.21.10.md) and [release readiness](docs/qa/release-readiness-0.21.10.md).
+
+**Full Changelog**: https://github.com/Yeachan-Heo/oh-my-codex/compare/v0.21.9...v0.21.10
+
+## [0.21.9] - 2026-10-12
+
+Patch release for `v0.21.8..e4653cd8e115f923014be72cf0f7fb6645384246` (10 commits, 24 files, +1693/−96, PRs #3751/#3753/#3754/#3755/#3757/#3760/#3761/#3762/#3763/#3764, linked issues #3655/#3729).
+
+### Highlights
+
+- Session token usage: `omx session usage` summarizes cumulative per-session token counters from local Codex rollout logs, with filtering, sorting, and JSON output (#3760, authored by @hiSandog).
+- Native subagent lifecycle evidence: a native subagent's Stop event now records bounded completion evidence (`completed_at`, `completion_source: native_stop_event`) in subagent tracking for doctor diagnostics (#3761, fixes #3729).
+- Astra-defaults evaluation: a RunRecord collector and `collect-astra-defaults` script gather live evaluation-suite records, with GPT-6 Sol control, GPT-6.1 Sol candidate, and Luna-uniform comparison configs (#3764, part of #3655; no evaluation results are published in this release).
+
+### Added
+
+- `omx session usage` command and `docs/session-usage.md` (#3760, authored by @hiSandog).
+- Live evaluation RunRecord collector for the astra-defaults suite (#3764).
+
+### Fixed
+
+- Record typed completion evidence for native subagent Stop events in subagent tracking (#3761, fixes #3729).
+
+### Maintenance
+
+- Dependencies: `libc` 0.2.190 (#3751), `@biomejs/biome` 2.5.15 (#3753), `@types/node` 26.6.4 (#3754), `@modelcontextprotocol/sdk` 1.32.0 (#3755), `tar-stream` 3.2.2 / `@types/tar-stream` 3.1.5 (#3757).
+- #3762 (synthetic evaluation records presented as #3655 results) was reverted by #3763; net zero change.
+
+Full inventory, contributors, compatibility notes, and verification: [release notes](docs/release-notes-0.21.9.md) and [release readiness](docs/qa/release-readiness-0.21.9.md).
+
+**Full Changelog**: https://github.com/Yeachan-Heo/oh-my-codex/compare/v0.21.8...v0.21.9
+
+## [0.21.8] - 2026-10-06
+
+### Highlights
+
+- Windows binary path compatibility: platform-specific `.exe` suffix is now correctly applied to omx-runtime binary paths on Windows, resolving resolution failures (#3736, #3737).
+- Session management robustness: thread identity resolution for native `$ralplan --advisory` is improved with dedicated `readPayloadSessionId` helper (#3740, #3741); `writeAtomic` Windows EPERM errors are handled correctly (#3744, #3746).
+- Legacy configuration support: support for legacy v0.21.6 AGENTS.md backup paths is restored via git rev-parse (#3739, #3742).
+- Session export capability: local sessions can now be exported as Markdown or JSON format (#3745, authored by @hiSandog).
+- Diagnostic improvements: warning messages for non-OMX Codex sessions are clarified (#3747, #3749).
+
+### Fixed
+
+- Windows path handling: apply platform-specific `.exe` suffix to omx-runtime binary paths (#3736, #3737); handle `writeAtomic` Windows EPERM errors correctly by using `syncRegularFile` (#3744, #3746).
+- Session management: resolve native `$ralplan --advisory` thread identity from `session_id` when hook payload carries no thread field (#3740, #3741).
+- Legacy backup support: support legacy v0.21.6 AGENTS.md backup path via git rev-parse (#3739, #3742); resolve absolute `--git-path` in linked worktrees; prefer team-state backup over legacy git-dir backup when both exist.
+- Diagnostic output: clarify warning message for non-OMX Codex sessions to avoid confusion about session authority and management state (#3747, #3749).
+
+### Added
+
+- Session export: export local sessions as Markdown or JSON format for integration with external systems and documentation (#3745, authored by @hiSandog).
+
+Full inventory, contributors, compatibility notes, and verification: [release notes](docs/release-notes-0.21.8.md) and [release readiness](docs/qa/release-readiness-0.21.8.md).
+
+**Full Changelog**: https://github.com/Yeachan-Heo/oh-my-codex/compare/v0.21.7...v0.21.8
+
+## [0.21.7] - 2026-10-01
+
+### Highlights
+
+- Expand GPT-6 model recognition: support GPT-6 Sol and Luna, and add gpt-6.1-sol to model catalogs (#3701, #3716).
+- Resolve plugin skill contract resolution, template provenance, and hook trust preservation: fix plugin-skill links in snapshot context, validate templates/AGENTS.md in cache provenance, and preserve foreign hook trust during legacy migration (#3707, #3708, #3704).
+- Fix HUD idle CPU storm and correctness: reconcile hook metadata atomicity, stop noisy reconcile failures, and align native fixtures with authority frames (#3706, #3711).
+
+### Fixed
+
+- Plugin integrity and template validation: validate templates directory structure and AGENTS.md in plugin cache provenance checks (#3707); fix plugin skill contract links to resolve inside the plugin snapshot (#3708); preserve foreign hook trust during legacy hook migration (#3704).
+- Team runtime robustness: make queued leader notices safe after shutdown (#3692); keep non-Team guidance available when Team is disabled (#3699, #3700); Team worker instructions are written to a per-worker file passed via `OMX_MODEL_INSTRUCTIONS_FILE`, so they are no longer committed into the leader's `AGENTS.md` (#3717, #3718); `omx setup` no longer writes Codex's removed `features.child_agents_md` flag and strips existing copies (#3719, #3720).
+- HUD and tmux correctness: keep hook metadata atomic and verify idle CPU (#3706); stop idle reconciliation CPU storm (#3706); fix tmux question probe error handling (#3711); align native hook fixtures with authority frames (#3706); distinguish matching-but-unverified selectors in identity-indeterminate bindings (#3725, #3726); include stderr summary and exit status in detached leader failure reports (#3723, #3727).
+- Doctor and notifications: show resolved config path when missing (#3693); strip OSC terminal escapes in notifications (#3694); clarify fresh config doctor evidence (#3691).
+- Session management: native `$ralplan --advisory` resolves thread identity from `session_id` when the hook payload carries no thread field (#3721, #3722); deliver exec follow-ups in session-scoped Stop path (#3724, #3728); omx exec --help no longer attempts session establishment with an active owner (#3731, #3732); add 'ultragoal' to supported state read modes (#3733, #3734).
+- Configuration: preserve hashes in quoted TOML values (#3712).
+
+### Maintenance
+
+- Refresh dependency locks: `zod` 4.6.5, `@biomejs/biome` 2.5.14, `@types/node` 26.6.3, `@modelcontextprotocol/sdk` 1.30.1 (#3696, #3697, #3698, #3713, #3714).
+
+Full inventory, contributors, compatibility notes, and verification: [release notes](docs/release-notes-0.21.7.md) and [release readiness](docs/qa/release-readiness-0.21.7.md).
+
+**Full Changelog**: https://github.com/Yeachan-Heo/oh-my-codex/compare/v0.21.6...v0.21.7
+
+## [0.21.6] - 2026-09-21
+
+### Highlights
+
+- Ship a reusable default-model cost/quality evaluation suite with deterministic stage-transition records, supplied-record reporting, and documented declaration/validation limits (#3663, #3665, #3666, #3667).
+- Make the tmux HUD lifecycle self-terminating and leak-free: skip stale Team leader panes during reconciliation, stop orphan watchers and noisy reconcile failures, and close the HUD when its tmux leader pane exits (#3660, #3683, #3685).
+- Correct AGENTS scope handling: stop duplicating durable AGENTS into session instructions and preserve global AGENTS in project-scoped launches (#3678, #3684).
+
+### Fixed
+
+- Harden auth storage, TOML boundaries, PATH resolution, and stderr redaction (#3662); stop oversized stderr suppression from eating the next record (#3676).
+- Survive Windows `EPERM` fsync during Team startup (#3661) and skip non-directory entries when draining Team dispatch (#3680).
+- Strip complete ANSI CSI sequences in notifications (#3668).
+
+### Maintenance
+
+- Keep ordinary requests out of optional workflow machinery (#3648) and remove confirmed unused internal exports without new machinery (#3649).
+- Close remaining 0.21 capability-parity documentation gaps (#3634).
+- Refresh dependency locks: `zod` 4.6.2, `@biomejs/biome` 2.5.13, `@types/node` 26.5.1 (#3673, #3674, #3675).
+
+Full inventory, contributors, compatibility notes, and verification: [release notes](docs/release-notes-0.21.6.md) and [release readiness](docs/qa/release-readiness-0.21.6.md).
+
+**Full Changelog**: https://github.com/Yeachan-Heo/oh-my-codex/compare/v0.21.5...v0.21.6
+
+## [0.21.5] - 2026-09-10
+
+### Highlights
+
+- Show active Team identity and per-worker progress in the tmux HUD, preserving narrow layouts, selected runtime roots, leader space, and exact resize ownership (#3644).
+- Align plugin-hook diagnostics/setup/uninstall with current Codex capabilities; preserve explicit reasoning effort and verify the real packed hook lifecycle against Codex 0.153.4 (#3627, #3631, #3632, #3650).
+- Allow ordinary native implementation/reporting under inherited permissions and remove active guidance handoffs to retired workflows (#3637, #3647).
+
+### Fixed
+
+- Keep project runtime-home credentials ephemeral and export child-safe CODEX_HOME for Team workers (#3633).
+- Make Team startup preflight side-effect free and actionable (#3643); restore portable session recovery and hydrated native runtime lookup (#3638, #3639).
+- Respect TOML array-of-tables boundaries (#3645) and POSIX PATH edge cases in command discovery (#3644).
+- Fix a real bootstrap-sentinel ABA race in canonical mode-binding lease acquisition, found via post-merge concurrency stress testing; serialize the full lease lifecycle with a new descriptor-bound native OS advisory mutex (#3650, #3652).
+- Correct cross-platform dogfood fixtures without skipping adversarial identity, trust, or no-follow checks; preserve literal tmux receipt hashes and close retained fixture handles (#3650).
+
+### Maintenance
+
+- Refresh dependency locks (#3640, #3641, #3642), add MIT LICENSE, and measure maintenance growth without additional runtime machinery (#3646).
+- Reconcile published main documentation/history before freezing the new release range (#3651).
+
+Full inventory, contributors, compatibility notes, and verification: [release notes](docs/release-notes-0.21.5.md) and [release readiness](docs/qa/release-readiness-0.21.5.md).
+
+**Full Changelog**: https://github.com/Yeachan-Heo/oh-my-codex/compare/v0.21.4...v0.21.5
+
+## [0.21.4] - 2026-09-06
+
+Patch release for the frozen range `v0.21.3..b08eceeecc7a7379f041ceca51260f073d8a95bb` (3 commits, 35 changed files, +364/−195; PRs #3615/#3618/#3622).
+
+### Changed
+
+- **Astra defaults across OMX agent tiers** — leaders, specialists, standard and fast agents, low-complexity workers, Team children, exact planning/research roles, new-agent configuration, subscription defaults, and SparkShell summaries now default to `gpt-6-astra`. Explicit model configuration, profiles, per-agent overrides, CLI/environment selections, provider-specific names, and established reasoning-effort defaults remain authoritative (#3622).
+
+### Documentation
+
+- **Agent catalog and workflow alignment** — the generated catalog now exposes only active/internal roles as directly invocable, documents merged and deprecated role replacements, and aligns the primary workflow wording with `$deep-interview` → `$ralplan` → `$ultragoal`; `$team` remains conditional parallel execution (#3618).
+
+### Compatibility
+
+- Patch release with no intentional breaking CLI or package-layout changes. The Astra defaults apply only when no explicit model choice already exists.
+- **Known gap:** #3623 remains open, separately owned, unmerged, and outside this release. On Codex CLI 0.153.4, doctor/setup still use the removed `plugin_hooks` feature flag for plugin-hook inference and generated configuration, causing misleading diagnostics and obsolete config. Native `hooks/list` recognized the installed plugin hooks in the report, so a runtime hook outage has not been demonstrated.
+
+### Release train
+
+- #3615 advanced synchronized package/plugin/Cargo development metadata to 0.21.4 after v0.21.3. It is included in the compare inventory but is not a separate user-facing headline.
+
+## [0.21.3] - 2026-09-03
+
+Patch release for `v0.21.2..3902573ef309e54534d7388579f2a7243ca7f465` (15 commits, 20 changed files, +1,285/−101, PRs #3604/#3605/#3606/#3608/#3610/#3612, linked issues #3609/#3611).
+
+### Fixed
+
+- **Duplicate Team wakes** — Team no longer re-wakes on already-terminal projections; terminal projections are retired instead of lingering (#3608).
+- **Long responses lost from tmux scrollback** — the detached leader scrollback clamp was 500 lines, so long sessions discarded multi-line assistant responses from the pane while the session still held them (`/copy` returned the full text). The clamp is now 5000 lines with an `OMX_TMUX_HISTORY_LIMIT` override, range 500–200000, unparseable values falling back to the default (#3612, fixes #3611).
+
+### Documentation
+
+- **Composer drift triage and scrollback semantics** — `docs/troubleshooting.md` gains the prompt-drift symptom entry with the measured repro matrix and `tmux resize-pane` recovery, plus the note that `history-limit` is fixed at pane creation (#3610, documents #3609).
+
+### Dependencies
+
+- `@types/node` 26.2.0 → 26.4.0 (#3606), `zod` 4.4.3 → 4.5.2 (#3605), `@biomejs/biome` 2.5.10 → 2.5.11 (#3604).
+
+## [0.21.2] - 2026-09-01
+
+Patch release for `v0.21.1..04533ebfc887643586e37180ec3270473948115a` (11 commits, 29 files, +1,245/−10).
+
+### Added
+
+- **Optional GitGuardex HUD finish progress** — live review/autofix progress with project-root configuration, bounded stream discovery, and animation that advances at the one-second HUD watch cadence (#3601).
+- **Bahasa Indonesia README** — Indonesian translation with synchronized localized language navigation (#3599).
+
+### Fixed
+
+- **macOS arm64 `omx-runtime` hydration** — global install/reinstall and immediate/deferred script-suppressed updates hydrate the verified versioned native cache, with bounded non-fatal network waits (#3602).
+
+## [0.21.1] - 2026-08-31
+
+Patch release for `v0.21.0..abf2393af1e1f9355adfe43166432462a86d2e54` (125 commits, 116 changed files, +23,996/−1,141, 28 commit-subject references plus linked issues #3587/#3589).
+
+### Added
+
+- **Ralplan Advisory / Contract A** — cooperative Planner → Architect → Critic planning evidence without granting execution authority, installing a global tool fence, suppressing unrelated workflows, or automatically handing off to implementation (#3594).
+
+### Changed
+
+- **Trusted release publication** — tag publication is bound to `main` ancestry and exact SHA, native release assets are verified, npm uses trusted publishing, and the retired manual token path is unavailable (#3552, #3566, #3570, #3571, #3572).
+- **Canonical state and process ownership** — state leases, locks, session pointers, and recovery distinguish exact process incarnations and preserve Windows/macOS durability and path semantics.
+
+### Fixed
+
+- **Detached HUD and session lifecycle** — exact owner-pane cleanup, refresh rendering, split and non-split tmux layout reconciliation, stable hook cleanup identity, and contention re-arming (#3577, #3578, #3584, #3587, #3588, #3595).
+- **Team legacy HUD startup** — recognizes and safely removes both same-session-only and leader-only legacy HUD panes before topology freeze (#3597).
+- **Plugin/cache/launcher provenance** — symlink, namespace, and stale launcher confusion fail closed (#3558, #3561).
+- **Runtime and configuration reliability** — Ralph native-app deadlock recovery, SparkShell tail-line validation, empty hooks-state recovery, and generated configuration trust checks (#3589, #3590, #3592).
+
+## [0.21.0] - 2026-08-22
+
+Minor release for the exact 99-commit range `v0.20.5..0f2bbb704b83f94a69622b1915f555498e0dd283` (310 files, +31,779/−69,216). This is the post-epic consolidation train: deprecated skills are removed with migration stubs, hard workflow gates are replaced by advisory guidance, state becomes a single-source-of-truth with a read-only MCP surface, and `omx autopilot` returns as the canonical staged orchestrator. Consumers invoking removed skills or MCP writer tools receive explicit migration errors — this is an intentional breaking change with migration paths.
+
+### Removed
+
+- **Deprecated skills and prompts** — 25 removed skills now fail fast through a uniform sunset-stub resolver with direct replacements: `$ralph` → `$ultragoal` (`omx ralph` CLI and persistence runtime unaffected), `$ultrawork`/`$ecomode`/`$swarm` → `$team`, `$prometheus-strict` → `$plan`, `$review`/`$security-review` → `$code-review`, `$ask-claude`/`$ask-gemini` → `$ask`, `$deepsearch` → `$analyze`, `$frontend-ui-ux` → `$design`, `$visual-verdict`/`$web-clone` → `$visual-ralph`, `$help` → `$omx-setup`; `$tdd`, `$note`, `$trace`, and `$build-fix` removed without a direct replacement. Prompts `prometheus-strict-metis`, `momus`, `oracle`, `scholastic`, and `sisyphus-lite` and their agents are deregistered (#3506, #3502, #3508).
+- **MCP state writer tools** — `state_write` and `state_clear` are removed from the MCP surface and now return explicit deprecation errors; durable writes route exclusively through the CLI/programmatic state operations (#3507, #3498).
+- **Hard workflow gates** — the Autopilot/Ralplan consensus-receipt gate and the planning-gate requirement are removed; workflow transitions no longer require a host-issued consensus receipt (#3492).
+- **Merged-away execution loops** — the standalone autopilot/pipeline loops are merged into the unified planning/execution surfaces (#3502, #3508).
+
+### Added
+
+- **`omx autopilot` canonical orchestrator** — first-class CLI command restoring the staged `$deep-interview` → `$ralplan` → `$ultragoal` orchestration as the canonical chain (#3518, #3517).
+- **Ultragoal ordinary/strict modes** — the completion cohort gate is advisory in ordinary mode and strict in strict mode (#3500, #3505).
+- **Upgrade fixture and drift tests** — a 0.20.x → 0.21 upgrade fixture plus generator `--check` surfaces are promoted into `npm test` (#3509).
+- **Setup flags** — `--disable-hooks` (disable only OMX-owned hook registrations, preserving foreign hooks) and `omx doctor --repair-state` (archive stale state projections under `.omx/archive/`) (#3497, #3507).
+
+### Changed
+
+- **State single source of truth** — a sole-writer state model with read-only MCP projection, shared handoff-carrier invariants for every writer, explicit stale-projection retirement, and fail-closed handling of corrupt or laundered carriers (#3507, #3498 follow-ups).
+- **Hooks simplified; PreToolUse advisory-only** — conductor PreToolUse write guards are replaced by advisory guidance with Codex App capability warnings (#3497, #3492).
+- **Prompt architecture slimmed** — invariants are centralized and the prompt surface reduced (#3513).
+- **Bounded plugin lifecycle** — plugin snapshots are bounded with a hook escape hatch, unpinned historical snapshots retired, and deprecated-skill retirement keyed to install badges (#3499, #3512).
+- **Team worker provenance** — team workers on external OMX state roots are authorized through evidence-returning provenance verification shared by the native hook and `omx doctor --team` (#3537).
+- **Session pointer authority split** — read semantics and write authority are separated on platforms without process-birth evidence; identity-indeterminate live pointers count as occupied evidence but never grant write authority, with bounded unproven-pointer adoption and verified-dead pointer quarantine (#3527, #3541, #3528).
+- **Dependencies** — `@biomejs/biome` 2.5.6→2.5.8 (#3532) and `@types/node` 26.1.2→26.2.0 (#3485).
+
+### Fixed
+
+- **Detached `--madmax` root identity on macOS** — path-alias canonicalization, post-create root re-resolution, and path-alias-insensitive launch-context keys; regression-locked by #3550/#3551.
+- **Detached tmux owner race** — post-tag owner mutation is retried under an unchanged authority fence (#3540, #3541).
+- **macOS arm64 runtime hydration** — `omx-runtime` hydrates and is discovered on arm64 npm installs (#3519, #3520).
+- **URL reader false truncation** — content at an exact size limit is no longer reported truncated (#3546).
+- **Notification durations** — zero and invalid durations are handled (#3544).
+- **Worker triggers** — submitted with tmux named `Enter` instead of raw `C-m`, with Claude 2.1.x prompt detection (#3531).
+- **Team scale-down claim boundary** — synchronization coverage made load-tolerant (#3548, #3549).
+- **Guarded tmux split receipts** — format-string injection is rejected (#3489).
+- **Ralplan → Ultragoal handoff** — reachable via user-authorized execution handoff (#3463, #3483).
+- **Conductor delegation lanes** — unblocked under typed, positively-supported native spawn surfaces (#3482).
+- **HUD Fish parsing** — tmux parsing no longer breaks on Fish `export` (#3480).
+- **Version display** — `OMX_VERSION_REVISION` takes precedence over `OMX_GIT_REVISION` (#3417).
+- **Canonical contracts** — workflow and hook recovery contracts aligned (#3514, #3486).
 ## [0.20.5] - 2026-08-10
 
 Patch release for the exact 68-commit range `v0.20.4..13c08f84cb6c27750b8f5c4a4d5105faad074196`. No intentional breaking CLI or package-layout changes.

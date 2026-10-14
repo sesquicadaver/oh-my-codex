@@ -1,8 +1,8 @@
 import type { TeamTask, TeamTaskCoordinationMechanism } from "./state.js";
 import { existsSync } from "fs";
-import { mkdir, readFile, rm, stat, writeFile } from "fs/promises";
-import { dirname, join } from "path";
 import { execFileSync } from "child_process";
+import { mkdir, readFile, rm, stat, writeFile } from "fs/promises";
+import { dirname, join, resolve } from "path";
 import {
   getFixLoopInstructions,
   getVerificationInstructions,
@@ -46,29 +46,6 @@ interface WorkerRootAgentsBackup {
   tracked: boolean;
   previousContent?: string;
   skipWorktreeApplied?: boolean;
-}
-
-function buildWorkerRootAgentsBackupPath(
-  teamStateRoot: string,
-  teamName: string,
-  workerName: string,
-  worktreePath: string,
-): string {
-  const gitPath = tryReadGitValue(worktreePath, [
-    "rev-parse",
-    "--git-path",
-    "omx/root-agents-backup.json",
-  ]);
-  return gitPath
-    ? gitPath
-    : join(
-        teamStateRoot,
-        "team",
-        teamName,
-        "workers",
-        workerName,
-        "root-agents-backup.json",
-      );
 }
 
 export function generateWorkerRootAgentsContent(
@@ -139,53 +116,6 @@ ${options.rolePromptContent.trim()}
 `;
 }
 
-function tryReadGitValue(cwd: string, args: string[]): string | null {
-  try {
-    const value = execFileSync("git", args, {
-      cwd,
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true,
-    }).trim();
-    return value || null;
-  } catch {
-    return null;
-  }
-}
-
-function isTracked(worktreePath: string, fileName: string): boolean {
-  try {
-    execFileSync("git", ["ls-files", "--error-unmatch", fileName], {
-      cwd: worktreePath,
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true,
-    });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function ensureGitInfoExcludePattern(
-  worktreePath: string,
-  pattern: string,
-): Promise<void> {
-  const excludePath = tryReadGitValue(worktreePath, [
-    "rev-parse",
-    "--git-path",
-    "info/exclude",
-  ]);
-  if (!excludePath) return;
-  const existing = existsSync(excludePath)
-    ? await readFile(excludePath, "utf-8")
-    : "";
-  const lines = new Set(existing.split(/\r?\n/).filter(Boolean));
-  if (lines.has(pattern)) return;
-  const next = `${existing}${existing.endsWith("\n") || existing.length === 0 ? "" : "\n"}${pattern}\n`;
-  await mkdir(dirname(excludePath), { recursive: true });
-  await writeFile(excludePath, next, "utf-8");
-}
 async function buildWorkerRootAgentsContent(
   options: WorkerRootAgentsOptions,
   projectAgentsContent: string | undefined,
@@ -226,50 +156,82 @@ async function buildWorkerRootAgentsContent(
 export async function writeWorkerWorktreeRootAgentsFile(
   options: WorkerRootAgentsOptions,
 ): Promise<string> {
+  // Write worker runtime instructions to a team-scoped location in .omx state,
+  // not to the worker's tracked AGENTS.md. This ensures checkout/merge operations
+  // never commit OMX-injected runtime instructions to the leader's branch.
   const agentsPath = join(options.worktreePath, "AGENTS.md");
-  const tracked = isTracked(options.worktreePath, "AGENTS.md");
-  const existed = existsSync(agentsPath);
-  const previousContent = existed
+  const previousContent = existsSync(agentsPath)
     ? await readFile(agentsPath, "utf-8")
     : undefined;
-  let skipWorktreeApplied = false;
 
-  if (tracked) {
-    try {
-      execFileSync("git", ["update-index", "--skip-worktree", "AGENTS.md"], {
-        cwd: options.worktreePath,
-        encoding: "utf-8",
-        stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true,
-    });
-      skipWorktreeApplied = true;
-    } catch {
-      skipWorktreeApplied = false;
-    }
-  } else {
-    await ensureGitInfoExcludePattern(options.worktreePath, "AGENTS.md");
-  }
-
-  const backup: WorkerRootAgentsBackup = {
-    existed,
-    tracked,
-    previousContent,
-    skipWorktreeApplied,
-  };
-  const backupPath = buildWorkerRootAgentsBackupPath(
+  const outPath = join(
     options.teamStateRoot,
+    "team",
     options.teamName,
+    "workers",
     options.workerName,
-    options.worktreePath,
+    "AGENTS.md",
   );
-  await mkdir(dirname(backupPath), { recursive: true });
-  await writeFile(backupPath, JSON.stringify(backup, null, 2), "utf-8");
+  await mkdir(dirname(outPath), { recursive: true });
   await writeFile(
-    agentsPath,
+    outPath,
     await buildWorkerRootAgentsContent(options, previousContent),
     "utf-8",
   );
-  return agentsPath;
+  return outPath;
+}
+
+/**
+ * Try to read a git value from the worktree.
+ */
+function tryReadGitValue(
+  cwd: string,
+  args: string[],
+): string | null {
+  try {
+    const value = execFileSync("git", args, {
+      cwd,
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+    }).trim();
+    return value || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Build the backup path for a worker's root AGENTS.md.
+ * Prefers the team-state backup; falls back to the legacy v0.21.6 Git-dir backup only when that file exists.
+ */
+function buildWorkerRootAgentsBackupPath(
+  teamStateRoot: string,
+  teamName: string,
+  workerName: string,
+  worktreePath: string,
+): string {
+  const teamStatePath = join(
+    teamStateRoot,
+    "team",
+    teamName,
+    "workers",
+    workerName,
+    "root-agents-backup.json",
+  );
+  if (existsSync(teamStatePath)) return teamStatePath;
+  // v0.21.6 wrote the backup under the Git dir. `--git-path` is relative in a
+  // primary checkout but absolute in a linked worktree, so resolve, never join.
+  const gitPath = tryReadGitValue(worktreePath, [
+    "rev-parse",
+    "--git-path",
+    "omx/root-agents-backup.json",
+  ]);
+  if (gitPath) {
+    const legacyPath = resolve(worktreePath, gitPath);
+    if (existsSync(legacyPath)) return legacyPath;
+  }
+  return teamStatePath;
 }
 
 export async function removeWorkerWorktreeRootAgentsFile(
@@ -278,6 +240,7 @@ export async function removeWorkerWorktreeRootAgentsFile(
   teamStateRoot: string,
   worktreePath: string,
 ): Promise<void> {
+  // Restore the worktree's original AGENTS.md from backup, if it exists.
   const agentsPath = join(worktreePath, "AGENTS.md");
   const backupPath = buildWorkerRootAgentsBackupPath(
     teamStateRoot,
@@ -296,29 +259,53 @@ export async function removeWorkerWorktreeRootAgentsFile(
   }
 
   if (!backup) {
+    // Clean up the generated worker instructions file from .omx state only
+    const outPath = join(
+      teamStateRoot,
+      "team",
+      teamName,
+      "workers",
+      workerName,
+      "AGENTS.md",
+    );
+    await rm(outPath, { force: true }).catch(() => {});
     return;
   }
 
+  // Clear skip-worktree flag if it was applied
   if (backup.tracked && backup.skipWorktreeApplied) {
     try {
       execFileSync("git", ["update-index", "--no-skip-worktree", "AGENTS.md"], {
         cwd: worktreePath,
         encoding: "utf-8",
         stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true,
-    });
+        windowsHide: true,
+      });
     } catch {
       // Best-effort cleanup only.
     }
   }
 
+  // Restore the original content or delete the file
   if (backup.existed) {
     await writeFile(agentsPath, backup.previousContent ?? "", "utf-8");
   } else {
     await rm(agentsPath, { force: true }).catch(() => {});
   }
 
+  // Clean up the backup file
   await rm(backupPath, { force: true }).catch(() => {});
+
+  // Clean up the generated worker instructions file from .omx state
+  const outPath = join(
+    teamStateRoot,
+    "team",
+    teamName,
+    "workers",
+    workerName,
+    "AGENTS.md",
+  );
+  await rm(outPath, { force: true }).catch(() => {});
 }
 
 function buildVerificationSection(taskDescription: string): string {
@@ -1160,14 +1147,10 @@ export function buildLeaderMailboxTriggerDirective(
     "mailbox",
     "leader-fixed.json",
   );
-  if (teamStateRoot !== ".omx/state") {
-    return {
-      intent: "pending-mailbox-review",
-      text: `Read ${mailboxPath}; new msg from ${fromWorker}. Review it; decide next step.`,
-    };
-  }
+  // A queued nudge may be read after shutdown removes the team's mailbox.
+  // Keep terminal handling in the notice itself, not in the deleted state.
   return {
     intent: "pending-mailbox-review",
-    text: `Read ${mailboxPath}; ${fromWorker} sent a new message. Review it and decide the next concrete step.`,
+    text: `Read ${mailboxPath}; msg from ${fromWorker}. Team gone: ignore stale notice; don't ask user or restart. Otherwise review; decide next step.`,
   };
 }

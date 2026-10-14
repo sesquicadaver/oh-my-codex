@@ -9,13 +9,13 @@
 [![npm version](https://img.shields.io/npm/v/oh-my-codex)](https://www.npmjs.com/package/oh-my-codex)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
-[![Discord](https://img.shields.io/discord/1452487457085063218?color=5865F2&logo=discord&logoColor=white&label=Discord)](https://discord.gg/jq6jnSGABY)
+[![Discord](https://img.shields.io/discord/1452487457085063218?color=5865F2&logo=discord&logoColor=white&label=Discord)](https://discord.gg/wSyUQYfhAw)
 
 > **[Website](https://yeachan-heo.github.io/oh-my-codex-website/)** | **[Documentation](https://yeachan-heo.github.io/oh-my-codex-website/docs.html)** | **[CLI Reference](https://yeachan-heo.github.io/oh-my-codex-website/docs.html#cli-reference)** | **[Workflows](https://yeachan-heo.github.io/oh-my-codex-website/docs.html#workflows)** | **[OpenClaw 통합 가이드](../openclaw-integration.ko.md)** | **[GitHub](https://github.com/Yeachan-Heo/oh-my-codex)** | **[npm](https://www.npmjs.com/package/oh-my-codex)**
 
 [OpenAI Codex CLI](https://github.com/openai/codex)를 위한 멀티 에이전트 오케스트레이션 레이어.
 
-## v0.9.0 새로운 기능 — Spark Initiative
+## v0.9.0 과거 릴리스 노트 — Spark Initiative
 
 Spark Initiative는 OMX의 네이티브 탐색/검사 경로를 강화한 릴리스입니다.
 
@@ -33,7 +33,7 @@ Codex 내부에서:
 ```text
 $deep-interview "clarify the auth change"
 $ralplan "approve the auth plan and review tradeoffs"
-$ralph "carry the approved plan to completion"
+$ultragoal "carry the approved plan to completion"
 $team 3:executor "execute the approved plan in parallel"
 ```
 
@@ -49,7 +49,7 @@ omx team shutdown <team-name>
 
 1. `$deep-interview` — 범위나 경계가 아직 모호할 때 먼저 명확히 합니다.
 2. `$ralplan` — 정리된 범위를 승인 가능한 아키텍처 및 구현 계획으로 바꿉니다.
-3. `$team` 또는 `$ralph` — 승인된 계획을 병렬로 조율해 실행하려면 `$team`, 한 명의 책임자가 끝까지 밀고 검증하려면 `$ralph`를 사용합니다.
+3. `$team` 또는 `$ultragoal` — 승인된 계획을 병렬로 조율해 실행하려면 `$team`, 목표를 지속적으로 기록하고 완료까지 진행하려면 `$ultragoal`을 사용합니다.
 
 ## 핵심 모델
 
@@ -125,10 +125,10 @@ export OMX_MCP_WORKDIR_ROOTS="/path/to/project:/path/to/another-root"
 기본적으로 OMX는 다음을 주입합니다:
 
 ```text
--c model_instructions_file="<cwd>/AGENTS.md"
+-c model_instructions_file="<cwd>/.omx/state/sessions/<session-id>/AGENTS.md"
 ```
 
-이것은 `CODEX_HOME`의 `AGENTS.md`와 프로젝트 `AGENTS.md`(있는 경우)를 병합한 뒤 런타임 오버레이를 추가합니다.
+이 생성 파일에는 OMX 런타임 오버레이(`<!-- OMX:RUNTIME:START -->` ~ `<!-- OMX:RUNTIME:END -->`)만 들어갑니다. `CODEX_HOME/AGENTS.md`와 프로젝트 `AGENTS.md`는 복사되지 않고 Codex 네이티브 AGENTS 디스커버리를 통해 한 번만 로드됩니다. Team 워커는 계속 자체 워커 지시문을 구성합니다.
 Codex 동작을 확장하지만, Codex 핵심 시스템 정책을 대체/우회하지 않습니다.
 
 제어:
@@ -193,8 +193,8 @@ OMX_TEAM_AUTO_INTERRUPT_RETRY=0  # 선택: 적응형 queue->resend 폴백 비활
   - `notify = ["node", "..."]`
   - `model_reasoning_effort = "medium"`
   - `developer_instructions = "..."`
-  - `[features] multi_agent = true, child_agents_md = true`
-  - MCP 서버 항목 (`omx_state`, `omx_memory`, `omx_code_intel`, `omx_trace`, `omx_wiki`)
+  - `[features] multi_agent = true` (기본 설정)
+  - MCP 서버 항목 (`omx_state`, `omx_memory`, `omx_code_intel`, `omx_trace`, `omx_wiki` (저장소 위키 서버), `omx_hermes` (세션 상태/조정을 위한 제한된 브리지))
   - `[tui] status_line`
 - 범위별 `AGENTS.md`
 - `.omx/` 런타임 디렉토리 및 HUD 설정
@@ -206,7 +206,7 @@ OMX_TEAM_AUTO_INTERRUPT_RETRY=0  # 선택: 적응형 queue->resend 폴백 비활
 
 예시:
 - 에이전트: `architect`, `planner`, `executor`, `debugger`, `verifier`, `security-reviewer`
-- 스킬: `deep-interview`, `ralplan`, `team`, `ralph`, `plan`, `cancel`
+- 스킬: `deep-interview`, `ralplan`, `team`, `ultragoal`, `plan`, `cancel`
 
 ## 프로젝트 구조
 
@@ -258,6 +258,26 @@ npm test
 ## 감사의 말
 
 [oh-my-claudecode](https://github.com/Yeachan-Heo/oh-my-claudecode)에서 영감을 받아 Codex CLI용으로 적응하였습니다.
+
+## 언어
+
+- [English](../../README.md)
+- [한국어](./README.ko.md)
+- [日本語](./README.ja.md)
+- [简体中文](./README.zh.md)
+- [繁體中文](./README.zh-TW.md)
+- [Tiếng Việt](./README.vi.md)
+- [Español](./README.es.md)
+- [Português](./README.pt.md)
+- [Русский](./README.ru.md)
+- [Türkçe](./README.tr.md)
+- [Deutsch](./README.de.md)
+- [Français](./README.fr.md)
+- [Italiano](./README.it.md)
+- [Ελληνικά](./README.el.md)
+- [Polski](./README.pl.md)
+- [Українська](./README.uk.md)
+- [Bahasa Indonesia](./README.id.md)
 
 ## 라이선스
 

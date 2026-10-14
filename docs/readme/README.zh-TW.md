@@ -9,13 +9,13 @@
 [![npm version](https://img.shields.io/npm/v/oh-my-codex)](https://www.npmjs.com/package/oh-my-codex)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
-[![Discord](https://img.shields.io/discord/1452487457085063218?color=5865F2&logo=discord&logoColor=white&label=Discord)](https://discord.gg/jq6jnSGABY)
+[![Discord](https://img.shields.io/discord/1452487457085063218?color=5865F2&logo=discord&logoColor=white&label=Discord)](https://discord.gg/wSyUQYfhAw)
 
 > **[官方網站](https://yeachan-heo.github.io/oh-my-codex-website/)** | **[說明文件](https://yeachan-heo.github.io/oh-my-codex-website/docs.html)** | **[CLI 參考手冊](https://yeachan-heo.github.io/oh-my-codex-website/docs.html#cli-reference)** | **[工作流程](https://yeachan-heo.github.io/oh-my-codex-website/docs.html#workflows)** | **[OpenClaw 整合指南](../openclaw-integration.zh-TW.md)** | **[GitHub](https://github.com/Yeachan-Heo/oh-my-codex)** | **[npm](https://www.npmjs.com/package/oh-my-codex)**
 
 [OpenAI Codex CLI](https://github.com/openai/codex) 的多智能體編排層。
 
-## v0.9.0 新功能 — Spark Initiative
+## v0.9.0 歷史版本說明 — Spark Initiative
 
 Spark Initiative 是一個強化 OMX 原生探索與檢查路徑的版本發布。
 
@@ -33,7 +33,7 @@ Spark Initiative 是一個強化 OMX 原生探索與檢查路徑的版本發布�
 ```text
 $deep-interview "clarify the auth change"
 $ralplan "approve the auth plan and review tradeoffs"
-$ralph "carry the approved plan to completion"
+$ultragoal "carry the approved plan to completion"
 $team 3:executor "execute the approved plan in parallel"
 ```
 
@@ -49,7 +49,7 @@ omx team shutdown <team-name>
 
 1. `$deep-interview` — 當範圍或邊界仍不清楚時，先用它釐清需求。
 2. `$ralplan` — 把釐清後的範圍整理成可核准的架構與實作計畫。
-3. `$team` 或 `$ralph` — 需要協調平行執行時用 `$team`，需要單一負責人持續推進到完成並驗證時用 `$ralph`。
+3. `$ultragoal` 或 `$team` — 需要持久目標追蹤時用 `$ultragoal`，需要協調平行執行時用 `$team`。
 
 ## 核心模型
 
@@ -144,10 +144,10 @@ export OMX_MCP_WORKDIR_ROOTS="/path/to/project:/path/to/another-root"
 預設情況下，OMX 注入：
 
 ```text
--c model_instructions_file="<cwd>/AGENTS.md"
+-c model_instructions_file="<cwd>/.omx/state/sessions/<session-id>/AGENTS.md"
 ```
 
-這會將 `CODEX_HOME` 中的 `AGENTS.md` 與專案的 `AGENTS.md`（若存在）合併，然後再附加執行期 overlay。
+這個產生的檔案只包含 OMX 執行期 overlay（`<!-- OMX:RUNTIME:START -->` 到 `<!-- OMX:RUNTIME:END -->`）。`CODEX_HOME/AGENTS.md` 與專案 `AGENTS.md` 不會被複製進去，Codex 會透過原生 AGENTS 探索只載入一次。Team worker 仍自行組合其 worker 指示。
 此舉擴充了 Codex 的行為，但不會取代或繞過 Codex 核心系統策略。
 
 控制方式：
@@ -181,7 +181,7 @@ omx team shutdown <team-name>
 ### Ralph 後續流程
 
 若協調式 Team 執行之後仍需要單一負責人的持續修正 / 驗證迴圈，
-請在 Team 工作完成後另外執行 `omx ralph ...`。舊的 linked-Ralph 團隊路徑已不再是建議或支援的標準路徑。
+若協調式 Team 執行之後仍需要單一負責人的持續修正 / 驗證迴圈，請在 Team 工作完成後另外使用 `$ultragoal`，持續追蹤目標直到完成。舊的 linked-Ralph 團隊路徑已不再是建議或支援的標準路徑。
 
 團隊工作進程的 Worker CLI 選擇：
 
@@ -212,8 +212,8 @@ OMX_TEAM_AUTO_INTERRUPT_RETRY=0  # 選用：停用自適應 queue->resend 回退
   - `notify = ["node", "..."]`
   - `model_reasoning_effort = "medium"`
   - `developer_instructions = "..."`
-  - `[features] multi_agent = true, child_agents_md = true`
-  - MCP 伺服器項目（`omx_state`、`omx_memory`、`omx_code_intel`、`omx_trace`）
+  - `[features] multi_agent = true` (存在時)
+  - MCP 伺服器項目（`omx_state`、`omx_memory`、`omx_code_intel`、`omx_trace`、`omx_wiki`（儲存庫 Wiki 伺服器）、`omx_hermes`（受限的工作階段狀態／協調橋接））
   - `[tui] status_line`
 - 範圍專屬 `AGENTS.md`
 - `.omx/` 執行期目錄與 HUD 設定
@@ -225,15 +225,15 @@ OMX_TEAM_AUTO_INTERRUPT_RETRY=0  # 選用：停用自適應 queue->resend 回退
 
 範例：
 - 代理：`architect`、`planner`、`executor`、`debugger`、`verifier`、`security-reviewer`
-- 技能：`deep-interview`、`ralplan`、`team`、`ralph`、`plan`、`cancel`
+- 技能：`deep-interview`、`ralplan`、`team`、`ultragoal`、`plan`、`cancel`
 
-### 視覺品管迴圈（`$visual-verdict`）
+### 視覺品質驗證迴圈（`$visual-ralph`）
 
-當任務需要視覺保真度驗證（參考圖片 + 生成截圖）時，請使用 `$visual-verdict`。
+當任務需要視覺保真度驗證（參考圖片 + 生成截圖）時，請使用 `$visual-ralph`。（OMX 0.21 移除了 `$visual-verdict`。）
 
 - 回傳結構化 JSON：`score`、`verdict`、`category_match`、`differences[]`、`suggestions[]`、`reasoning`
 - 建議通過門檻：**90 分以上**
-- 對於視覺任務，在每次下一輪編輯前先執行 `$visual-verdict`
+- 對於視覺任務，在每次下一輪編輯前先執行 `$visual-ralph`
 - 使用像素差異 / pixelmatch 疊加圖作為**輔助除錯工具**（而非主要通過/失敗判斷依據）
 
 ## 專案結構
@@ -287,6 +287,26 @@ npm test
 ## 致謝
 
 靈感來自 [oh-my-claudecode](https://github.com/Yeachan-Heo/oh-my-claudecode)，為 Codex CLI 量身改編。
+
+## 語言
+
+- [English](../../README.md)
+- [한국어](./README.ko.md)
+- [日本語](./README.ja.md)
+- [简体中文](./README.zh.md)
+- [繁體中文](./README.zh-TW.md)
+- [Tiếng Việt](./README.vi.md)
+- [Español](./README.es.md)
+- [Português](./README.pt.md)
+- [Русский](./README.ru.md)
+- [Türkçe](./README.tr.md)
+- [Deutsch](./README.de.md)
+- [Français](./README.fr.md)
+- [Italiano](./README.it.md)
+- [Ελληνικά](./README.el.md)
+- [Polski](./README.pl.md)
+- [Українська](./README.uk.md)
+- [Bahasa Indonesia](./README.id.md)
 
 ## 授權條款
 

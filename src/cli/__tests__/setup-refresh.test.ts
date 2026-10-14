@@ -16,12 +16,15 @@ import { setup } from "../setup.js";
 import TOML from "@iarna/toml";
 
 const TEST_CODEX_PROBES = {
+  installMode: "legacy",
   codexFeaturesProbe: () => null,
   codexVersionProbe: () => null,
 } satisfies Parameters<typeof setup>[0];
 
 const EXPECTED_PROJECT_GITIGNORE = [
   ".omx/",
+  ".omx-state-locks/",
+  ".omx-state-locks.identity.json",
   ".codex/*",
   "!.codex/agents/",
   "!.codex/agents/**",
@@ -33,6 +36,8 @@ const EXPECTED_PROJECT_GITIGNORE = [
 ].join("\n") + "\n";
 
 const EXPECTED_PROJECT_GITIGNORE_WITHOUT_OMX = [
+  ".omx-state-locks/",
+  ".omx-state-locks.identity.json",
   ".codex/*",
   "!.codex/agents/",
   "!.codex/agents/**",
@@ -146,7 +151,6 @@ describe("omx setup refresh summary and dry-run behavior", () => {
 
       for (const skillName of [
         "performance-goal",
-        "autoresearch-goal",
         "ultragoal",
       ]) {
         const skillPath = join(wd, ".codex", "skills", skillName, "SKILL.md");
@@ -175,9 +179,7 @@ describe("omx setup refresh summary and dry-run behavior", () => {
       });
 
       for (const skillName of [
-        "autopilot",
-        "ralplan",
-        "ralph",
+        "plan",
         "ultragoal",
         "code-review",
         "ultraqa",
@@ -204,8 +206,8 @@ describe("omx setup refresh summary and dry-run behavior", () => {
       assert.doesNotMatch(agents, /<team_(?:compositions|pipeline|model_resolution)>/);
       assert.doesNotMatch(agents, /\bTeam mode\b/);
       assert.doesNotMatch(agents, /\bteam-executor\b/);
-      assert.match(agents, /\$ralph/);
-      assert.match(agents, /autopilot/);
+      assert.match(agents, /\$ultragoal/);
+      assert.match(agents, /understand -> execute -> verify -> report/);
     } finally {
       await rm(wd, { recursive: true, force: true });
     }
@@ -252,6 +254,8 @@ describe("omx setup refresh summary and dry-run behavior", () => {
       const gitignore = await readFile(join(wd, ".gitignore"), "utf-8");
       assert.equal(gitignore, `node_modules/\n${EXPECTED_PROJECT_GITIGNORE}`);
       assert.equal(gitignore.match(/^\.omx\/$/gm)?.length ?? 0, 1);
+      assert.equal(gitignore.match(/^\.omx-state-locks\/$/gm)?.length ?? 0, 1);
+      assert.equal(gitignore.match(/^\.omx-state-locks\.identity\.json$/gm)?.length ?? 0, 1);
       assert.equal(gitignore.match(/^\.codex\/\*$/gm)?.length ?? 0, 1);
     } finally {
       await rm(wd, { recursive: true, force: true });
@@ -363,10 +367,13 @@ describe("omx setup refresh summary and dry-run behavior", () => {
       await writeFile(join(wd, ".gitignore"), ".omx/\n.codex/\n");
 
       await runSetupInTempDir(wd, { scope: "project" });
+      await runSetupInTempDir(wd, { scope: "project" });
 
       const gitignore = await readFile(join(wd, ".gitignore"), "utf-8");
       assert.equal(gitignore, EXPECTED_PROJECT_GITIGNORE);
       assert.equal(gitignore.match(/^\.codex\/$/gm)?.length ?? 0, 0);
+      assert.equal(gitignore.match(/^\.omx-state-locks\/$/gm)?.length ?? 0, 1);
+      assert.equal(gitignore.match(/^\.omx-state-locks\.identity\.json$/gm)?.length ?? 0, 1);
     } finally {
       await rm(wd, { recursive: true, force: true });
     }
@@ -402,7 +409,7 @@ describe("omx setup refresh summary and dry-run behavior", () => {
     }
   });
 
-  it("offers an upgrade from gpt-5.3-codex to gpt-5.6-sol when accepted", async () => {
+  it("offers an upgrade from gpt-5.3-codex to gpt-6-astra when accepted", async () => {
     const wd = await mkdtemp(join(tmpdir(), "omx-setup-refresh-"));
     try {
       await mkdir(join(wd, ".omx", "state"), { recursive: true });
@@ -425,14 +432,14 @@ describe("omx setup refresh summary and dry-run behavior", () => {
         modelUpgradePrompt: async (currentModel, targetModel) => {
           promptCalls += 1;
           assert.equal(currentModel, "gpt-5.3-codex");
-          assert.equal(targetModel, "gpt-5.6-sol");
+          assert.equal(targetModel, "gpt-6-astra");
           return true;
         },
       });
 
       const config = await readFile(join(wd, ".codex", "config.toml"), "utf-8");
       assert.equal(promptCalls, 1);
-      assert.match(config, /^model = "gpt-5\.6-sol"$/m);
+      assert.match(config, /^model = "gpt-6-astra"$/m);
       assert.doesNotMatch(config, /^model = "gpt-5\.3-codex"$/m);
       assert.doesNotMatch(config, /^model_context_window = 250000$/m);
       assert.doesNotMatch(config, /^model_auto_compact_token_limit = 200000$/m);
@@ -442,7 +449,7 @@ describe("omx setup refresh summary and dry-run behavior", () => {
     }
   });
 
-  it("offers an upgrade from gpt-5.5 to gpt-5.6-sol when accepted", async () => {
+  it("offers an upgrade from gpt-5.5 to gpt-6-astra when accepted", async () => {
     const wd = await mkdtemp(join(tmpdir(), "omx-setup-refresh-"));
     try {
       await mkdir(join(wd, ".omx", "state"), { recursive: true });
@@ -453,13 +460,13 @@ describe("omx setup refresh summary and dry-run behavior", () => {
         scope: "project",
         modelUpgradePrompt: async (currentModel, targetModel) => {
           assert.equal(currentModel, "gpt-5.5");
-          assert.equal(targetModel, "gpt-5.6-sol");
+          assert.equal(targetModel, "gpt-6-astra");
           return true;
         },
       });
 
       const config = await readFile(join(wd, ".codex", "config.toml"), "utf-8");
-      assert.match(config, /^model = "gpt-5\.6-sol"$/m);
+      assert.match(config, /^model = "gpt-6-astra"$/m);
       assert.doesNotMatch(config, /^model = "gpt-5\.5"$/m);
     } finally {
       await rm(wd, { recursive: true, force: true });

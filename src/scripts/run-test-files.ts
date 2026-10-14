@@ -9,6 +9,7 @@ const DEFAULT_CI_TEST_CONCURRENCY = 1;
 const DEFAULT_LOCAL_TEST_CONCURRENCY = 1;
 const PRESERVED_TEST_ENV_KEYS = new Set([
   'OMX_EXPLORE_BIN',
+  'OMX_RUNTIME_BINARY',
   'OMX_NODE_TEST_CONCURRENCY',
   'OMX_NODE_TEST_FORCE_EXIT',
   'OMX_NODE_TEST_FORCE_EXIT_GRACE_MS',
@@ -80,6 +81,7 @@ function shouldScrubRuntimeEnvKey(key: string): boolean {
   return (
     key.startsWith('OMX_') ||
     key.startsWith('OMXBOX_') ||
+    key.startsWith('GJC_') ||
     key.startsWith('CODEX_') ||
     key === 'USE_OMX_EXPLORE_CMD' ||
     key === 'SESSION_ID' ||

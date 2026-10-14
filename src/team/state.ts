@@ -4,6 +4,7 @@ import { existsSync } from 'fs';
 import { randomUUID } from 'crypto';
 import { AsyncLocalStorage } from 'async_hooks';
 import { readUsableSessionState } from '../hooks/session.js';
+import { syncRegularFile } from '../utils/file-durability.js';
 import { isTerminalPhase, type TeamPhase, type TerminalPhase } from './orchestrator.js';
 import {
   computeTaskReadiness as computeTaskReadinessImpl,
@@ -28,6 +29,7 @@ import {
   transitionDispatchRequest as transitionDispatchRequestImpl,
   markDispatchRequestNotified as markDispatchRequestNotifiedImpl,
   markDispatchRequestDelivered as markDispatchRequestDeliveredImpl,
+  markDispatchRequestFailed as markDispatchRequestFailedImpl,
   normalizeBridgeDispatchRecord,
   normalizeDispatchRequest as normalizeDispatchRequestImpl,
 } from './state/dispatch.js';
@@ -836,9 +838,9 @@ export async function writeAtomic(filePath: string, data: string): Promise<void>
 
   const tmpPath = `${filePath}.tmp.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}`;
   await writeFile(tmpPath, data, 'utf8');
-  const handle = await openForAtomicWrite(tmpPath, 'r');
+  const handle = await openForAtomicWrite(tmpPath, 'r+');
   try {
-    await handle.sync();
+    await syncRegularFile(handle, platformForAtomicWrite);
   } finally {
     await handle.close();
   }
@@ -1646,10 +1648,12 @@ export async function updateWorkerHeartbeat(
   await writeAtomic(p, JSON.stringify(heartbeat, null, 2));
 }
 
-// Read worker status (returns {state:'unknown'} on missing/malformed)
-export async function readWorkerStatus(teamName: string, workerName: string, cwd: string): Promise<WorkerStatus> {
+// Read worker status (returns {state:'unknown'} on missing/malformed).
+// Read-only consumers may reuse an already-selected runtime state root.
+export async function readWorkerStatus(teamName: string, workerName: string, cwd: string, stateRoot?: string): Promise<WorkerStatus> {
   const unknownStatus: WorkerStatus = { state: 'unknown', updated_at: '1970-01-01T00:00:00.000Z' };
-  const p = join(workerDir(teamName, workerName, cwd), 'status.json');
+  assertSafeTeamName(teamName);
+  const p = join(stateRoot ?? resolveTeamStateRoot(cwd), 'team', teamName, 'workers', workerName, 'status.json');
   try {
     const raw = await readFile(p, 'utf8');
     const parsed = JSON.parse(raw) as unknown;
@@ -2178,6 +2182,13 @@ export async function removeDispatchRequestsForWorkers(
     if (isBridgeEnabled()) {
       const stateDir = resolveBridgeStateDir(cwd);
       const bridge = getDefaultBridge(stateDir);
+      const compat = bridge.readCompatFile<{ records?: unknown[] }>('dispatch.json');
+      const compatPath = join(stateDir, 'dispatch.json');
+      if (legacyRequestIds.length === 0
+        && (!existsSync(compatPath) || (Array.isArray(compat?.records) && compat.records.length === 0))) {
+        await writeAtomic(dispatchRequestsPath(teamName, cwd), JSON.stringify(requests, null, 2));
+        return;
+      }
       const snapshot = bridge.execCommand({ command: 'CaptureSnapshot' });
       if (snapshot.event !== 'SnapshotCaptured') {
         throw new Error(`authoritative_dispatch_rollback_discovery_failed:${[...names].join(',')}`);
@@ -2312,6 +2323,22 @@ export async function markDispatchRequestDelivered(
   });
 }
 
+export async function markDispatchRequestFailed(
+  teamName: string,
+  requestId: string,
+  reason: string,
+  cwd: string,
+): Promise<void> {
+  await markDispatchRequestFailedImpl(requestId, reason, {
+    teamName,
+    cwd,
+    validateWorkerName,
+    withDispatchLock,
+    readDispatchRequests,
+    writeDispatchRequests,
+  });
+}
+
 export async function sendDirectMessage(
   teamName: string,
   fromWorker: string,
@@ -2319,7 +2346,7 @@ export async function sendDirectMessage(
   body: string,
   cwd: string
 ): Promise<TeamMailboxMessage> {
-  return await sendDirectMessageImpl(fromWorker, toWorker, body, {
+  return await withTeamTaskBarrier(teamName, cwd, async () => await sendDirectMessageImpl(fromWorker, toWorker, body, {
     teamName,
     cwd,
     withMailboxLock,
@@ -2328,7 +2355,7 @@ export async function sendDirectMessage(
     writeMailbox,
     appendTeamEvent,
     readTeamConfig,
-  });
+  }));
 }
 
 export async function broadcastMessage(
@@ -2337,7 +2364,7 @@ export async function broadcastMessage(
   body: string,
   cwd: string
 ): Promise<TeamMailboxMessage[]> {
-  return await broadcastMessageImpl(fromWorker, body, {
+  return await withTeamTaskBarrier(teamName, cwd, async () => await broadcastMessageImpl(fromWorker, body, {
     teamName,
     cwd,
     withMailboxLock,
@@ -2346,7 +2373,7 @@ export async function broadcastMessage(
     writeMailbox,
     appendTeamEvent,
     readTeamConfig,
-  });
+  }));
 }
 
 export async function markMessageDelivered(
@@ -2400,6 +2427,94 @@ export async function listMailboxMessages(
     appendTeamEvent,
     readTeamConfig,
   });
+}
+
+/** Retire only mailbox messages proven by this Team's per-target compatibility shadows. */
+export async function retireTeamMailboxMessages(
+  teamName: string,
+  workerNames: readonly string[],
+  cwd: string,
+): Promise<number> {
+  let retired = 0;
+  const targets = new Set(workerNames);
+  try {
+    for (const entry of await readdir(join(teamDir(teamName, cwd), 'mailbox'))) {
+      if (!entry.endsWith('.json')) continue;
+      const workerName = entry.slice(0, -'.json'.length);
+      if (WORKER_NAME_SAFE_PATTERN.test(workerName)) targets.add(workerName);
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
+  for (const workerName of targets) {
+    await withMailboxLock(teamName, workerName, cwd, async () => {
+      const mailbox = await readLegacyMailbox(teamName, workerName, cwd);
+      if (mailbox.messages.length === 0) return;
+
+      if (isBridgeEnabled()) {
+        const stateDir = resolveBridgeStateDir(cwd);
+        const bridge = getDefaultBridge(stateDir);
+        const compatPath = join(stateDir, 'mailbox.json');
+        const compat = bridge.readCompatFile<{ records?: unknown[] }>('mailbox.json');
+        if (!existsSync(compatPath) || !Array.isArray(compat?.records)) {
+          throw new Error('authoritative_mailbox_retirement_discovery_failed');
+        }
+        const bridgeRecords = bridge.readMailboxRecords();
+        if (bridgeRecords.some((record) => !record
+          || typeof record.message_id !== 'string'
+          || typeof record.from_worker !== 'string'
+          || typeof record.to_worker !== 'string'
+          || typeof record.body !== 'string'
+          || typeof record.created_at !== 'string'
+          || (record.notified_at !== null && typeof record.notified_at !== 'string')
+          || (record.delivered_at !== null && typeof record.delivered_at !== 'string'))) {
+          throw new Error('authoritative_mailbox_retirement_discovery_failed');
+        }
+        const bridgeIds = new Set(bridgeRecords.map((record) => record.message_id));
+        const unproven = mailbox.messages.filter((message) => !message.delivered_at && !bridgeIds.has(message.message_id));
+        if (unproven.length > 0) {
+          throw new Error(`authoritative_mailbox_retirement_discovery_failed:${unproven.map((message) => message.message_id).join(',')}`);
+        }
+        let changed = false;
+        let retiredFromAuthoritative = 0;
+        for (const message of mailbox.messages) {
+          const authoritative = bridgeRecords.find((record) => record.message_id === message.message_id);
+          if (!authoritative) continue;
+          if (authoritative.to_worker !== workerName) {
+            throw new Error(`authoritative_mailbox_retirement_discovery_failed:${message.message_id}`);
+          }
+          if (!authoritative.delivered_at) {
+            const event = bridge.execCommand({ command: 'MarkMailboxDelivered', message_id: message.message_id });
+            if (event.event !== 'MailboxDelivered' || event.message_id !== message.message_id) {
+              throw new Error(`authoritative_mailbox_retirement_failed:${message.message_id}`);
+            }
+          }
+          const verified = bridge.readMailboxRecords().find((record) => record.message_id === message.message_id);
+          if (!verified?.delivered_at) {
+            throw new Error(`authoritative_mailbox_retirement_verification_failed:${message.message_id}`);
+          }
+          if (!message.delivered_at) {
+            message.delivered_at = new Date().toISOString();
+            changed = true;
+            retiredFromAuthoritative += 1;
+          }
+        }
+        if (changed) {
+          await writeMailbox(teamName, mailbox, cwd);
+          retired += retiredFromAuthoritative;
+        }
+        return;
+      }
+
+      const pending = mailbox.messages.filter((message) => !message.delivered_at);
+      if (pending.length === 0) return;
+      const deliveredAt = new Date().toISOString();
+      for (const message of pending) message.delivered_at = deliveredAt;
+      await writeMailbox(teamName, mailbox, cwd);
+      retired += pending.length;
+    });
+  }
+  return retired;
 }
 
 export async function writeTaskApproval(

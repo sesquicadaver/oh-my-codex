@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFileSync, spawn, spawnSync } from 'child_process';
-import { mkdtemp, rm, writeFile, readFile, mkdir, chmod, readdir } from 'fs/promises';
+import { mkdtemp, rm, unlink, writeFile, readFile, mkdir, chmod, readdir } from 'fs/promises';
 import { join, relative, dirname } from 'path';
 import { tmpdir } from 'os';
 import { existsSync } from 'fs';
@@ -39,6 +39,7 @@ import {
   sendWorkerMessage,
   applyCreatedInteractiveSessionToConfig,
   reconcileStartupCleanupPanes,
+  rethrowStartupRollbackProofDebt,
   resolveWorkerLaunchArgsFromEnv,
   resolveTeamWorkerCliForResolvedLaunchArgs,
   shouldPrekillInteractiveShutdownProcessTrees,
@@ -62,6 +63,7 @@ import { buildInternalTeamName, resolveTeamIdentityScope } from '../team-identit
 import { writePersistedApprovedTeamExecutionBinding } from '../approved-execution.js';
 import { planWorktreeTarget } from '../worktree.js';
 import { scaleDown } from '../scaling.js';
+import { registerTeamNotice, teamNoticeLedgerPath, teamNoticeTargetKey } from '../notice-ledger.js';
 
 const coverageRun = process.env.NODE_V8_COVERAGE ? true : false;
 const skipSlowLifecycleUnderCoverage = coverageRun
@@ -903,15 +905,19 @@ async function withNativeWindowsPlatform<T>(run: () => Promise<T>): Promise<T> {
 }
 
 const ORIGINAL_OMX_TEAM_STATE_ROOT = process.env.OMX_TEAM_STATE_ROOT;
+const ORIGINAL_OMX_RUNTIME_BRIDGE = process.env.OMX_RUNTIME_BRIDGE;
 
 beforeEach(() => {
   delete process.env.OMX_TEAM_STATE_ROOT;
+  process.env.OMX_RUNTIME_BRIDGE = '0';
 });
 
 afterEach(() => {
   setTerminalEpochStartedHookForTest(null);
   if (typeof ORIGINAL_OMX_TEAM_STATE_ROOT === 'string') process.env.OMX_TEAM_STATE_ROOT = ORIGINAL_OMX_TEAM_STATE_ROOT;
   else delete process.env.OMX_TEAM_STATE_ROOT;
+  if (typeof ORIGINAL_OMX_RUNTIME_BRIDGE === 'string') process.env.OMX_RUNTIME_BRIDGE = ORIGINAL_OMX_RUNTIME_BRIDGE;
+  else delete process.env.OMX_RUNTIME_BRIDGE;
 });
 
 describe('runtime', () => {
@@ -1009,7 +1015,7 @@ process.on('SIGTERM', () => process.exit(0));`,
       assert.deepEqual(workerArgs, [
         '--sandbox', 'workspace-write',
         '-c', 'model_reasoning_effort="medium"',
-        '--model', 'gpt-5.6-sol',
+        '--model', 'gpt-6-astra',
         '--', 'C:\\workspace\\nested\\', '', '--sandbox=read-only', '--madmax',
       ]);
       const startedRuntime = runtime as TeamRuntime | null;
@@ -1400,7 +1406,7 @@ require('fs').writeFileSync(process.env.OMX_NON_CODEX_CAPTURE, process.argv.slic
         { OMX_TEAM_WORKER_LAUNCH_ARGS: '--no-alt-screen' },
         'executor',
       );
-      assert.deepEqual(args, ['--no-alt-screen', '--model', 'gpt-5.6-sol']);
+      assert.deepEqual(args, ['--no-alt-screen', '--model', 'gpt-6-astra']);
     });
   });
 
@@ -1413,11 +1419,11 @@ require('fs').writeFileSync(process.env.OMX_NON_CODEX_CAPTURE, process.argv.slic
         resolveAgentReasoningEffort('executor'),
         'codex',
       );
-      assert.deepEqual(args, ['--no-alt-screen', '-c', 'model_reasoning_effort="medium"', '--model', 'gpt-5.6-sol']);
+      assert.deepEqual(args, ['--no-alt-screen', '-c', 'model_reasoning_effort="medium"', '--model', 'gpt-6-astra']);
     });
   });
 
-  it('resolveWorkerLaunchArgsFromEnv keeps planner on exact gpt-5.6-sol medium when inherited leader is mini', () => {
+  it('resolveWorkerLaunchArgsFromEnv keeps planner on exact gpt-6-astra medium when inherited leader is mini', () => {
     withIsolatedDefaultModelEnv(() => {
       const args = resolveWorkerLaunchArgsFromEnv(
         {
@@ -1434,7 +1440,7 @@ require('fs').writeFileSync(process.env.OMX_NON_CODEX_CAPTURE, process.argv.slic
         '-c',
         'model_reasoning_effort="medium"',
         '--model',
-        'gpt-5.6-sol',
+        'gpt-6-astra',
       ]);
     });
   });
@@ -1477,7 +1483,7 @@ require('fs').writeFileSync(process.env.OMX_NON_CODEX_CAPTURE, process.argv.slic
         '-c',
         'model_reasoning_effort="medium"',
         '--model',
-        'gpt-5.6-sol',
+        'gpt-6-astra',
       ]);
     });
   });
@@ -1559,8 +1565,8 @@ require('fs').writeFileSync(process.env.OMX_NON_CODEX_CAPTURE, process.argv.slic
           'high',
           'codex',
         );
-        assert.deepEqual(lowArgs, ['--no-alt-screen', '-c', 'model_reasoning_effort="low"', '--model', 'gpt-5.6-sol']);
-        assert.deepEqual(highArgs, ['--no-alt-screen', '-c', 'model_reasoning_effort="high"', '--model', 'gpt-5.6-sol']);
+        assert.deepEqual(lowArgs, ['--no-alt-screen', '-c', 'model_reasoning_effort="low"', '--model', 'gpt-6-astra']);
+        assert.deepEqual(highArgs, ['--no-alt-screen', '-c', 'model_reasoning_effort="high"', '--model', 'gpt-6-astra']);
       });
     } finally {
       console.log = originalLog;
@@ -1685,7 +1691,7 @@ require('fs').writeFileSync(process.env.OMX_NON_CODEX_CAPTURE, process.argv.slic
         'low',
         'gemini',
       );
-      assert.deepEqual(codexArgs, ['--no-alt-screen', '-c', 'model_reasoning_effort="high"', '--model', 'gpt-5.6-sol']);
+      assert.deepEqual(codexArgs, ['--no-alt-screen', '-c', 'model_reasoning_effort="high"', '--model', 'gpt-6-astra']);
       assert.deepEqual(claudeArgs, ['--no-alt-screen', '-c', 'model_reasoning_effort="low"', '--model', 'claude-3-7-sonnet']);
       assert.deepEqual(geminiArgs, ['-c', 'model_reasoning_effort="low"', '--model', 'gemini-2.0-pro']);
     } finally {
@@ -5727,7 +5733,7 @@ process.on('SIGTERM', () => process.exit(0));
       assert.match(worker2Instructions, /You are operating as the \*\*writer\*\* role/);
       assert.match(worker2Instructions, /You are Writer\./);
       assert.doesNotMatch(worker2Instructions, /exact gpt-5\.6-terra model/);
-      assert.match(worker2Instructions, /resolved_model: gpt-5\.6-sol/);
+      assert.match(worker2Instructions, /resolved_model: gpt-6-astra/);
 
       let worker1Args: string[] | null = null;
       let worker2Args: string[] | null = null;
@@ -5748,10 +5754,10 @@ process.on('SIGTERM', () => process.exit(0));
       const worker2Joined = worker2Args!.join(' ');
       assert.match(worker1Joined, /model_reasoning_effort="medium"/);
       assert.match(worker1Joined, /model_instructions_file=.*worker-1\/AGENTS\.md/);
-      assert.match(worker1Joined, /--model gpt-5\.6-sol/);
+      assert.match(worker1Joined, /--model gpt-6-astra/);
       assert.match(worker2Joined, /model_reasoning_effort="xhigh"/);
       assert.match(worker2Joined, /model_instructions_file=.*worker-2\/AGENTS\.md/);
-      assert.match(worker2Joined, /--model gpt-5\.6-sol/);
+      assert.match(worker2Joined, /--model gpt-6-astra/);
 
       await shutdownTeam(runtime.teamName, cwd, { force: true });
       runtime = null;
@@ -6201,7 +6207,9 @@ process.on('SIGTERM', () => process.exit(0));
       const workerPath = runtime.config.workers[0]?.worktree_path;
       assert.ok(workerPath, 'detached worker should have a worktree path');
       assert.notEqual(workerPath, repo);
-      const workerAgents = await readFile(join(workerPath as string, 'AGENTS.md'), 'utf-8');
+      // Worker runtime instructions are in .omx state, not the tracked AGENTS.md
+      const workerInstructionsPath = join(repo, '.omx', 'state', 'team', runtime.teamName, 'workers', 'worker-1', 'AGENTS.md');
+      const workerAgents = await readFile(workerInstructionsPath, 'utf-8');
       assert.match(workerAgents, /Team Worker Runtime Instructions/);
       assert.match(workerAgents, new RegExp(runtime.teamName));
 
@@ -6226,9 +6234,10 @@ process.on('SIGTERM', () => process.exit(0));
       assert.equal(envLog.cwd, workerPath);
       assert.equal(envLog.teamStateRoot, join(repo, '.omx', 'state'));
       assert.equal(envLog.worker, 'team-detached-worktree-paths/worker-1');
-      const rootAgents = await readFile(join(workerPath, 'AGENTS.md'), 'utf-8');
+      // Verify the same instructions are accessible from the state path
+      const rootAgents = await readFile(workerInstructionsPath, 'utf-8');
       assert.match(rootAgents, /Team Worker Runtime Instructions/);
-      assert.match(rootAgents, new RegExp(`Inbox path: .*${runtime.teamName}/workers/worker-1/inbox\\.md`));
+      assert.match(rootAgents, new RegExp(`Inbox path: .*${runtime.teamName}/workers/worker-1/inbox\.md`));
 
       await sendWorkerMessage(runtime.teamName, 'leader-fixed', 'worker-1', 'follow-up', repo);
       const mailboxLog = await waitForFileText(
@@ -6309,7 +6318,8 @@ process.on('SIGTERM', () => process.exit(0));
       assert.ok(worktreePath, 'worker worktree path should be persisted');
       assert.equal(runtime.config.workers[0]?.worktree_created, true);
       assert.equal(existsSync(worktreePath as string), true);
-      assert.equal(existsSync(join(worktreePath as string, 'AGENTS.md')), true);
+      // Worker runtime instructions are in .omx state, not the worktree AGENTS.md
+      // AGENTS.md may or may not exist in the worktree depending on whether it's tracked in the repo
 
       await shutdownTeam(runtime.teamName, repo);
       runtime = null;
@@ -7022,6 +7032,65 @@ process.on('SIGTERM', () => process.exit(0));
     }
   });
 
+  it('(#3717) monitorTeam does not commit runtime instructions to leader AGENTS.md', async () => {
+    const repo = await initRepo();
+    let workerPath = '';
+    try {
+      // Create and commit initial AGENTS.md to leader
+      const originalAgents = '# Leader AGENTS\n\nLeader guidance here.\n';
+      await writeFile(join(repo, 'AGENTS.md'), originalAgents, 'utf-8');
+      execFileSync('git', ['add', 'AGENTS.md'], { cwd: repo, stdio: 'ignore' });
+      execFileSync('git', ['commit', '-m', 'initial'], { cwd: repo, stdio: 'ignore' });
+
+      workerPath = await addWorktree(repo, 'wk1-agents-branch', 'omx-runtime-wk1-agents-');
+
+      // Add uncommitted change in worker
+      await writeFile(join(workerPath, 'work.txt'), 'worker output\n', 'utf-8');
+
+      await initTeamState('team-agents-check', 'agents regression test', 'executor', 1, repo);
+      const cfg = await readTeamConfig('team-agents-check', repo);
+      assert.ok(cfg);
+      if (!cfg) throw new Error('missing config');
+      cfg.leader_pane_id = '';
+      cfg.workers[0] = {
+        ...cfg.workers[0],
+        assigned_tasks: ['1'],
+        worktree_repo_root: repo,
+        worktree_path: workerPath,
+        worktree_branch: 'wk1-agents-branch',
+        worktree_detached: false,
+        worktree_created: false,
+      };
+      await saveTeamConfig(cfg, repo);
+
+      await monitorTeam('team-agents-check', repo);
+
+      // Verify leader AGENTS.md is byte-identical to original
+      const leaderAgentsAfter = await readFile(join(repo, 'AGENTS.md'), 'utf-8');
+      assert.equal(leaderAgentsAfter, originalAgents, 'leader AGENTS.md should not be modified by team operations');
+
+      // Verify the auto-checkpoint and merge commits do NOT modify AGENTS.md
+      const log = execFileSync('git', ['log', '--oneline', '-10'], { cwd: repo, encoding: 'utf-8' });
+      assert.match(log, /auto-checkpoint|merge/, 'should have team commits');
+
+      // Verify auto-checkpoint commit does not include AGENTS.md
+      const autoCheckpointCommit = execFileSync('git', ['log', '--oneline', '--all'], { cwd: workerPath, encoding: 'utf-8' })
+        .split('\n')
+        .find((line: string) => line.includes('auto-checkpoint'));
+      assert.ok(autoCheckpointCommit, 'auto-checkpoint commit should exist');
+      if (autoCheckpointCommit) {
+        const commitSha = autoCheckpointCommit.split(' ')[0];
+        const diff = execFileSync('git', ['diff', `${commitSha}^..${commitSha}`, '--name-only'], { cwd: workerPath, encoding: 'utf-8' });
+        assert.doesNotMatch(diff, /AGENTS\.md/, 'auto-checkpoint should not include AGENTS.md');
+      }
+    } finally {
+      if (workerPath) {
+        await rm(workerPath, { recursive: true, force: true });
+      }
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
   it('monitorTeam uses merge for worker cleanly ahead of leader (hybrid merge path)', async () => {
     const repo = await initRepo();
     let workerPath = '';
@@ -7559,6 +7628,94 @@ exec "${realGit}" "$@"
       const teamRoot = join(cwd, '.omx', 'state', 'team', 'team-shutdown');
       assert.equal(existsSync(teamRoot), false);
     } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('shutdownTeam discards terminal Team notices before deleting ownership evidence', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'omx-runtime-shutdown-notices-'));
+    const previousRuntimeBridge = process.env.OMX_RUNTIME_BRIDGE;
+    try {
+      process.env.OMX_RUNTIME_BRIDGE = '0';
+      await initTeamState('team-shutdown-notices', 'shutdown notice cleanup test', 'executor', 1, cwd);
+      await markDetachedSessionAbsent('team-shutdown-notices', cwd);
+      const notice = await registerTeamNotice({
+        cwd,
+        targetId: 'leader-pane-owner',
+        teamName: 'team-shutdown-notices',
+        noticeClass: 'terminal',
+        generation: 'done',
+        source: { kind: 'test' },
+      });
+      assert.equal(notice.targetKey, teamNoticeTargetKey('leader-pane-owner'));
+
+      await shutdownWithoutTmuxSession('team-shutdown-notices', cwd);
+
+      const ledger = JSON.parse(await readFile(teamNoticeLedgerPath(join(cwd, '.omx', 'state')), 'utf8')) as {
+        notices: Record<string, { teamName: string }>;
+        wakes: Record<string, unknown>;
+      };
+      assert.equal(Object.values(ledger.notices).some((entry) => entry.teamName === 'team-shutdown-notices'), false);
+      assert.equal(ledger.wakes[notice.targetKey], undefined);
+      assert.equal(existsSync(join(cwd, '.omx', 'state', 'team', 'team-shutdown-notices')), false);
+    } finally {
+      if (typeof previousRuntimeBridge === 'string') process.env.OMX_RUNTIME_BRIDGE = previousRuntimeBridge;
+      else delete process.env.OMX_RUNTIME_BRIDGE;
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('shutdownTeam preserves Team state when global mailbox retirement cannot be proven', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'omx-runtime-shutdown-mailbox-fail-closed-'));
+    const previousRuntimeBridge = process.env.OMX_RUNTIME_BRIDGE;
+    const teamName = 'shutdown-mailbox-fail-closed';
+    try {
+      process.env.OMX_RUNTIME_BRIDGE = '0';
+      await initTeamState(teamName, 'shutdown mailbox cleanup test', 'executor', 1, cwd);
+      await sendDirectMessage(
+        teamName,
+        'leader-fixed',
+        'worker-1',
+        'pending result',
+        cwd,
+      );
+      await markDetachedSessionAbsent(teamName, cwd);
+      await writeFile(join(cwd, '.omx', 'state', 'mailbox.json'), JSON.stringify({ records: 'malformed' }));
+      process.env.OMX_RUNTIME_BRIDGE = '1';
+
+      await assert.rejects(
+        shutdownWithoutTmuxSession(teamName, cwd),
+        /authoritative_mailbox_retirement_discovery_failed/,
+      );
+      assert.equal(existsSync(join(cwd, '.omx', 'state', 'team', teamName)), true);
+    } finally {
+      if (typeof previousRuntimeBridge === 'string') process.env.OMX_RUNTIME_BRIDGE = previousRuntimeBridge;
+      else delete process.env.OMX_RUNTIME_BRIDGE;
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('shutdownTeam preserves Team state when mailbox compatibility output is absent', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'omx-runtime-shutdown-mailbox-missing-'));
+    const previousRuntimeBridge = process.env.OMX_RUNTIME_BRIDGE;
+    const teamName = 'shutdown-mailbox-missing';
+    try {
+      process.env.OMX_RUNTIME_BRIDGE = '0';
+      await initTeamState(teamName, 'shutdown mailbox missing test', 'executor', 1, cwd);
+      await sendDirectMessage(teamName, 'leader-fixed', 'worker-1', 'pending result', cwd);
+      await writeFile(join(cwd, '.omx', 'state', 'mailbox.json'), JSON.stringify({ records: [] }));
+      await unlink(join(cwd, '.omx', 'state', 'mailbox.json'));
+      process.env.OMX_RUNTIME_BRIDGE = '1';
+      await markDetachedSessionAbsent(teamName, cwd);
+
+      await assert.rejects(
+        shutdownWithoutTmuxSession(teamName, cwd),
+        /authoritative_mailbox_retirement_discovery_failed/,
+      );
+      assert.equal(existsSync(join(cwd, '.omx', 'state', 'team', teamName)), true);
+    } finally {
+      if (typeof previousRuntimeBridge === 'string') process.env.OMX_RUNTIME_BRIDGE = previousRuntimeBridge;
+      else delete process.env.OMX_RUNTIME_BRIDGE;
       await rm(cwd, { recursive: true, force: true });
     }
   });
@@ -12321,7 +12478,7 @@ esac
 
       const task = await readTask(runtime.teamName, '1', cwd);
       assert.equal(task?.delegation?.mode, 'auto');
-      assert.equal(task?.delegation?.child_model, 'gpt-5.6-terra');
+      assert.equal(task?.delegation?.child_model, 'gpt-6-astra');
       assert.equal(task?.delegation?.required_parallel_probe, true);
       assert.equal(task?.coordination?.mode, 'coordinated');
       assert.ok(task?.coordination?.activation_reasons.includes('cross_boundary_or_handoff_language'));
@@ -12987,7 +13144,7 @@ esac
 
       const reread = await readTask('team-assign-delegation', task.id, cwd);
       assert.equal(reread?.delegation?.mode, 'auto');
-      assert.equal(reread?.delegation?.child_model, 'gpt-5.6-terra');
+      assert.equal(reread?.delegation?.child_model, 'gpt-6-astra');
       assert.equal(reread?.coordination?.mode, 'coordinated');
       assert.ok(reread?.coordination?.activation_reasons.includes('shared_file_scope'));
       assert.equal(reread?.coordination?.activation_reasons.includes('stale_snapshot_before_assignment'), false);
@@ -13404,7 +13561,7 @@ esac
           assert.equal(latest?.last_reason, 'fallback_confirmed:leader_mailbox_notified');
           assert.match(
             latest?.trigger_message ?? '',
-            /Read \/tmp\/custom-team-state-root\/team\/team-leader-inject\/mailbox\/leader-fixed\.json; new msg from worker-1\./,
+            /Read \/tmp\/custom-team-state-root\/team\/team-leader-inject\/mailbox\/leader-fixed\.json; msg from worker-1\. Team gone: ignore stale notice; don't ask user or restart\. Otherwise review; decide next step\./,
           );
 
           const deliveryLog = await readTeamDeliveryLog(cwd);
@@ -13594,5 +13751,25 @@ exit 0
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
+  });
+
+  it('rethrowStartupRollbackProofDebt keeps the original startup failure as cause', () => {
+    const original = new Error('tmux_test_startup_failure');
+    assert.throws(
+      () => rethrowStartupRollbackProofDebt('startup_rollback', original, [
+        { paneId: '%2', reason: 'pane_proof_lost_during_process_teardown' },
+      ]),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.match(
+          error.message,
+          /^startup_rollback_pane_proof_unavailable:%2:pane_proof_lost_during_process_teardown \(during startup_rollback of: tmux_test_startup_failure\)$/,
+        );
+        assert.equal(error.cause, original);
+        return true;
+      },
+    );
+    // Without proof debt the helper must not throw at all.
+    assert.doesNotThrow(() => rethrowStartupRollbackProofDebt('startup_rollback', original, []));
   });
 });
